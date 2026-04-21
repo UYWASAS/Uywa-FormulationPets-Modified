@@ -1,0 +1,12 @@
+{
+    "name": "Admin",
+    "premium": true,
+    "mascota": {
+        "nombre": "Mani",
+        "especie": "perro",
+        "condicion": "adulto_entero",
+        "edad": 9.0,
+        "peso": 20.0,
+        "enfermedad": null
+    }
+}
