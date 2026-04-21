@@ -33,6 +33,7 @@ from ui import show_mascota_form
 from energy_requirements import calcular_mer, calcular_rer
 from energy_requirements import descripcion_condiciones
 from auth import USERS_DB
+from food_analysis import show_food_analysis
 
 # ======================== DEFINICIÓN GLOBAL DE FACTORES ========================
 FACTORES_CONDICION = {
@@ -116,7 +117,7 @@ user = st.session_state.get("user", None)
 
 # Configuración de la barra lateral
 with st.sidebar:
-    st.image("asstes/logo.png", use_column_width=True)
+    st.image("asstes/logo.png", use_container_width=True)
     st.markdown(
         """
         <div style="text-align:center;margin-bottom:20px;">
@@ -228,7 +229,7 @@ st.title("Gestión y Análisis de Dietas")
 
 tabs = st.tabs([
     "Perfil de Mascota",
-    "Formulación",
+    "Análisis",
     "Resultados",
     "Comparativo",
     "Resumen y Exportar"
@@ -482,204 +483,9 @@ def get_unidades_dict(nutrientes_seleccionados):
     }
     return {nutriente: unidades_base.get(nutriente, "unidad") for nutriente in nutrientes_seleccionados}
 
-# ======================== BLOQUE 6: AJUSTE DE REQUERIMIENTOS ========================
+# ======================== BLOQUE 6: ANÁLISIS NUTRICIONAL ========================
 with tabs[1]:
-    with st.expander("Ajuste de requerimientos nutricionales según dosis diaria", expanded=True):
-        # Obtener especie y etapa: primero desde widgets de Tab 1 (session state),
-        # con fallback al perfil guardado
-        especie_tab2 = (
-            st.session_state.get("especie_mascota")
-            or profile.get("mascota", {}).get("especie", None)
-        )
-        etapa_tab2 = (
-            st.session_state.get("etapa_mascota")
-            or profile.get("mascota", {}).get("etapa", None)
-        )
-        if not especie_tab2 or not etapa_tab2:
-            st.warning("⚠️ Por favor completa el Perfil (Tab 1) con especie y etapa.")
-            st.stop()
-
-        # Cargar directamente los datos FEDIAF base a 1000 kcal (independiente del MER)
-        nutrientes_ref_tab2 = NUTRIENTES_REFERENCIA_PERRO if especie_tab2 == "perro" else NUTRIENTES_REFERENCIA_GATO
-        nutrientes_especie_etapa_tab2 = nutrientes_ref_tab2.get(etapa_tab2, {})
-
-        requerimientos_base_tab2 = []
-        for nutriente, valores in nutrientes_especie_etapa_tab2.items():
-            requerimientos_base_tab2.append({
-                "Nutriente": nutriente,
-                "Min": valores.get("min", None),
-                "Max": valores.get("max", None),
-                "Unidad": valores.get("unit", "")
-            })
-        df_base = pd.DataFrame(requerimientos_base_tab2)
-
-        # Entrada para dosis diaria de dieta
-        dosis_g = st.number_input(
-            "Dosis diaria de dieta (g/día)", min_value=10, max_value=3000, value=1000, step=10, key="dosis_dieta_g_formulacion"
-        )
-
-        # Ajustar valores base (a 1000 kcal) a la dosis de dieta seleccionada
-        def escalar_por_dosis(val, dosis):
-            return round((val / 1000) * dosis, 2) if pd.notna(val) and val is not None else None
-
-        df_base["Min por kg dieta"] = df_base["Min"].apply(lambda x: escalar_por_dosis(x, dosis_g))
-        df_base["Max por kg dieta"] = df_base["Max"].apply(lambda x: escalar_por_dosis(x, dosis_g))
-
-        # Agregar fila de Energía Metabolizable con el estándar FEDIAF (1000 kcal/kg)
-        if not any(df_base["Nutriente"].str.contains("Energía metabolizable", na=False)):
-            em_row = pd.DataFrame({
-                "Nutriente": ["Energía metabolizable (EM)"],
-                "Min": [4000.0],
-                "Max": [None],
-                "Min por kg dieta": [4000.0],
-                "Max por kg dieta": [None],
-                "Unidad": ["kcal/kg"]
-            })
-            df_base = pd.concat([em_row, df_base], ignore_index=True)
-
-        # Guardar datos base FEDIAF y dosis para uso en Tab 3
-        st.session_state["fediaf_requirements_used"] = df_base[["Nutriente", "Min", "Max", "Unidad"]].copy()
-        st.session_state["dosis_dieta_formulacion"] = dosis_g
-
-        df_base = df_base.round(2)
-
-        # Visualización con tabla editable
-        editable_cols = {
-            "Min por kg dieta": st.column_config.NumberColumn("Min por kg dieta", min_value=0.0, step=0.01),
-            "Max por kg dieta": st.column_config.NumberColumn("Max por kg dieta", min_value=0.0, step=0.01),
-        }
-        df_req_kg_edit = st.data_editor(
-            df_base[["Nutriente", "Min por kg dieta", "Max por kg dieta", "Unidad"]],
-            column_config=editable_cols,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="fixed",
-            key="tabla_req_kg_editable_formulacion"
-        )
-
-        # Extraer los ajustes realizados
-        user_requirements = {}
-        for _, row in df_req_kg_edit.iterrows():
-            nut = row["Nutriente"]
-            try:
-                min_val = float(row["Min por kg dieta"]) if row["Min por kg dieta"] not in ["", None, "None"] else 0.0
-            except Exception:
-                min_val = 0.0
-            try:
-                max_val = float(row["Max por kg dieta"]) if row["Max por kg dieta"] not in ["", None, "None"] else 0.0
-            except Exception:
-                max_val = 0.0
-            unidad = row["Unidad"]
-            user_requirements[nut] = {
-                "min": min_val,
-                "max": max_val,
-                "unit": unidad
-            }
-        st.session_state["nutrientes_requeridos"] = user_requirements
-        
-        # INGREDIENTES Y LÍMITES (Selección y ajuste de ingredientes)
-        ingredientes_file = st.file_uploader(
-            "Matriz de ingredientes (.csv o .xlsx)", 
-            type=["csv", "xlsx"], 
-            key="uploader_ingredientes"
-        )
-        ingredientes_df = load_ingredients(ingredientes_file)
-        formulable = False
-
-        ingredientes_sel = []
-        ingredientes_df_filtrado = pd.DataFrame()
-        limites_min = {}
-        limites_max = {}
-
-        if ingredientes_df is not None and not ingredientes_df.empty:
-            for col in ingredientes_df.columns:
-                if col not in ["Ingrediente", "Categoría"]:
-                    ingredientes_df[col] = pd.to_numeric(ingredientes_df[col], errors='coerce').fillna(0)
-
-            ingredientes_df = ingredientes_df.round(2)
-            st.subheader("Selecciona las materias primas para formular la dieta por categoría")
-            categorias = ["Proteinas", "Carbohidratos", "Grasas", "Vegetales", "Frutas", "Otros"]
-            ingredientes_seleccionados = []
-            for cat in categorias:
-                df_cat = ingredientes_df[
-                    ingredientes_df["Categoría"].astype(str).str.strip().str.capitalize() == cat
-                ]
-                if not df_cat.empty:
-                    st.markdown(f"**{cat}**")
-                    ing_cat = df_cat["Ingrediente"].tolist()
-                    sel_cat = st.multiselect(
-                        f"Selecciona ingredientes de {cat}",
-                        ing_cat,
-                        default=[],
-                        key=f"multiselect_{cat}_formulacion"
-                    )
-                    ingredientes_seleccionados.extend(sel_cat)
-            ingredientes_sel = list(dict.fromkeys(ingredientes_seleccionados))
-            ingredientes_df_filtrado = ingredientes_df[ingredientes_df["Ingrediente"].isin(ingredientes_sel)].copy()
-
-            if not ingredientes_df_filtrado.empty:
-                with st.expander("Límites de inclusión de materias primas (%)", expanded=True):
-                    if "min_inclusion" not in st.session_state or "max_inclusion" not in st.session_state:
-                        st.session_state["min_inclusion"] = {ing: 0.0 for ing in ingredientes_sel}
-                        st.session_state["max_inclusion"] = {ing: 100.0 for ing in ingredientes_sel}
-
-                    limites_df = pd.DataFrame({
-                        "Ingrediente": ingredientes_sel,
-                        "Mínimo (%)": [st.session_state["min_inclusion"].get(ing, 0.0) for ing in ingredientes_sel],
-                        "Máximo (%)": [st.session_state["max_inclusion"].get(ing, 100.0) for ing in ingredientes_sel],
-                    })
-
-                    limites_editados = st.data_editor(
-                        limites_df,
-                        column_config={
-                            "Mínimo (%)": st.column_config.NumberColumn("Mínimo (%)", min_value=0.0, max_value=100.0, step=0.01),
-                            "Máximo (%)": st.column_config.NumberColumn("Máximo (%)", min_value=0.0, max_value=100.0, step=0.01),
-                        },
-                        use_container_width=True,
-                        hide_index=True,
-                        key="tabla_limites_inclusion_formulacion"
-                    )
-                    for _, row in limites_editados.iterrows():
-                        ing = row["Ingrediente"]
-                        st.session_state["min_inclusion"][ing] = float(row["Mínimo (%)"])
-                        st.session_state["max_inclusion"][ing] = float(row["Máximo (%)"])
-
-                    limites_min = {ing: st.session_state["min_inclusion"].get(ing, 0.0) / 100.0 for ing in ingredientes_sel}
-                    limites_max = {ing: st.session_state["max_inclusion"].get(ing, 100.0) / 100.0 for ing in ingredientes_sel}
-
-            formulable = not ingredientes_df_filtrado.empty
-
-        # ---------- FORMULAR DIETA ----------
-        if formulable:
-            if st.button("Formular dieta automática", key="btn_formular_dieta_auto"):
-                user_requirements = st.session_state.get("nutrientes_requeridos", {})
-                nutrientes_seleccionados = ["EM"] + list(user_requirements.keys())  # Incluye EM en la fórmula
-                formulator = DietFormulator(
-                    ingredientes_df_filtrado,
-                    nutrientes_seleccionados,
-                    user_requirements,
-                    limits={"min": limites_min, "max": limites_max},
-                    ratios=[],
-                    min_selected_ingredients={},
-                    diet_type=None
-                )
-                try:
-                    result = formulator.solve()
-                except Exception as e:
-                    result = {"success": False, "message": f"Error al ejecutar el solver: {str(e)}"}
-                st.session_state["last_result"] = result
-                if result.get("success", False):
-                    st.session_state["last_diet"] = result.get("diet", {})
-                    st.session_state["last_cost"] = result.get("cost", 0)
-                    st.session_state["last_nutritional_values"] = result.get("nutritional_values", {})
-                    st.session_state["ingredients_df"] = ingredientes_df_filtrado
-                    st.session_state["nutrientes_seleccionados"] = nutrientes_seleccionados
-                    st.success("¡Formulación realizada!")
-                else:
-                    st.error(result.get("message", "No se pudo formular la dieta."))
-
-        else:
-            st.info("Selecciona al menos un ingrediente para formular la mezcla.")
+    show_food_analysis()
 
 # ===================== BLOQUE 7: RESULTADOS DE LA FORMULACIÓN AUTOMÁTICA =====================
 with tabs[2]:
@@ -872,7 +678,7 @@ with tabs[2]:
 
     actualizar_graficos = st.button("Actualizar gráficos", key="actualizar_graficos_tab2")
     if actualizar_graficos:
-        st.experimental_rerun()
+        st.rerun()
 
     diet = st.session_state.get("last_diet", None)
     nutritional_values = st.session_state.get("last_nutritional_values", {})
@@ -1505,7 +1311,7 @@ with tabs[4]:
             if show_preview and st.button("Guardar foto de la mascota", key="guardar_foto_resumen"):
                 st.session_state["mascota_foto"] = nueva_foto.getvalue()
                 st.success("Foto guardada correctamente.")
-                st.experimental_rerun()
+                st.rerun()
 
         # 2. Si HAY foto guardada, mostrar solo imagen y botón eliminar
         else:
@@ -1518,7 +1324,7 @@ with tabs[4]:
                 st.markdown("<div class='photo-box'>No hay foto disponible.</div>", unsafe_allow_html=True)
             if st.button("Eliminar foto de la mascota", key="eliminar_foto_resumen"):
                 del st.session_state["mascota_foto"]
-                st.experimental_rerun()
+                st.rerun()
 
     with cols[1]:
         st.markdown(f"""
