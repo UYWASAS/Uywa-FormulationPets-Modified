@@ -34,6 +34,15 @@ from energy_requirements import calcular_mer, calcular_rer
 from energy_requirements import descripcion_condiciones
 from auth import USERS_DB
 from food_analysis import show_food_analysis
+from food_database import FOODS, calculate_energy as calc_energy_food, calculate_ena as calc_ena_food, get_food_names as get_food_names_db
+from PIL import Image
+import io
+
+# Umbral de cobertura energética para alertas visuales (%)
+ENERGY_COVERAGE_THRESHOLD = 110
+
+# Paleta de colores para gráficos radar
+RADAR_CHART_COLORS = ["#2176FF", "#FFB703", "#52B788", "#F4845F", "#8E9AAF", "#E74C3C"]
 
 # ======================== DEFINICIÓN GLOBAL DE FACTORES ========================
 FACTORES_CONDICION = {
@@ -230,8 +239,6 @@ st.title("Gestión y Análisis de Dietas")
 tabs = st.tabs([
     "Perfil de Mascota",
     "Análisis",
-    "Resultados",
-    "Comparativo",
     "Resumen y Exportar"
 ])
 
@@ -487,114 +494,7 @@ def get_unidades_dict(nutrientes_seleccionados):
 with tabs[1]:
     show_food_analysis()
 
-# ===================== BLOQUE 7: RESULTADOS DE LA FORMULACIÓN AUTOMÁTICA =====================
-with tabs[2]:
-    st.header("Resultados de la formulación automática")
-    result = st.session_state.get("last_result", None)
-    ingredientes_df_filtrado = st.session_state.get("ingredients_df", None)
-
-    ingredientes_sel = []
-    if ingredientes_df_filtrado is not None and "Ingrediente" in ingredientes_df_filtrado.columns:
-        ingredientes_sel = list(ingredientes_df_filtrado["Ingrediente"])
-    
-    diet = result.get("diet", {}) if result else {}
-    comp_data = []
-
-    # Obtener la dosis diaria usada para formulación
-    dosis_g = (
-        st.session_state.get("dosis_dieta_g_formulacion")
-        or st.session_state.get("dosis_dieta_g")
-        or 1000  # Valor por defecto si no existe
-    )
-
-    for ing in ingredientes_sel:
-        porcentaje = diet.get(ing, 0.0)
-        gramos = (porcentaje / 100.0) * dosis_g
-        comp_data.append({
-            "Ingrediente": ing,
-            "% Inclusión": fmt2(porcentaje),
-            "Gramos en dosis": fmt2(gramos)
-        })
-    res_df = pd.DataFrame(comp_data)
-
-    st.subheader("Composición óptima de la dieta (por dosis seleccionada)")
-    if "Ingrediente" in res_df.columns and not res_df.empty:
-        st.dataframe(res_df.set_index("Ingrediente"), use_container_width=True)
-    else:
-        st.info("Carga la matriz de ingredientes y selecciona al menos un ingrediente para ver la composición de la dieta.")
-
-    # ----------- Costo de la dieta formulada -----------
-    if result and "Ingrediente" in res_df.columns and not res_df.empty:
-        total_cost = result.get("cost", 0)
-        st.markdown(f"<b>Costo total (por 100 kg):</b> ${fmt2(total_cost)}", unsafe_allow_html=True)
-        precio_kg = total_cost / 100 if total_cost else 0
-        precio_ton = precio_kg * 1000
-        st.metric(label="Precio por kg de dieta", value=f"${fmt2(precio_kg)}")
-        st.metric(label="Precio por tonelada de dieta", value=f"${fmt2(precio_ton)}")
-    else:
-        st.info("No hay resultados de costo para mostrar.")
-
-    # ----------- COMPOSICIÓN NUTRICIONAL Y CUMPLIMIENTO -----------
-    st.subheader("Composición nutricional y cumplimiento (por kg de dieta)")
-
-    # Consolidar datos ajustados desde BLOQUE 6 y resultados calculados
-    user_requirements = st.session_state.get("nutrientes_requeridos", {})  # Valores ajustados
-    nutritional_values = result.get("nutritional_values", {}) if result else {}
-
-    # Incluir datos calculados y ajustados sin duplicar
-    comp_list = []
-    for nut, req in user_requirements.items():
-        obtenido = nutritional_values.get(nut, None)
-        min_v = fmt2(req.get("min", ""))
-        max_v = fmt2(req.get("max", ""))
-        unidad = req.get("unit", "")
-
-        cumple = "✔️"
-        try:
-            min_f = float(req.get("min", 0))
-            obt_f = float(obtenido) if obtenido not in [None, "", "None"] else 0
-            if obt_f < min_f:
-                cumple = "❌"
-        except Exception:
-            cumple = "❌"
-        try:
-            max_f = float(req.get("max", 0))
-            if max_f > 0 and obt_f > max_f:
-                cumple = "❌"
-        except Exception:
-            pass
-
-        # Asegurarse de no duplicar "Energía metabolizable (EM)"
-        if nut == "Energía metabolizable (EM)":
-            comp_list = [item for item in comp_list if item["Nutriente"] != "Energía metabolizable (EM)"]
-
-        comp_list.append({
-            "Nutriente": nut,
-            "Min": fmt2(min_v),
-            "Max": fmt2(max_v),
-            "Obtenido": fmt2(obtenido) if obtenido is not None and obtenido != "" else "",
-            "Unidad por kg de dieta": unidad,
-            "Cumple": cumple
-        })
-
-    # Generar DataFrame y mostrar resultados
-    comp_df = pd.DataFrame(comp_list)
-    if not comp_df.empty and "Nutriente" in comp_df.columns:
-        st.dataframe(comp_df.set_index("Nutriente"), use_container_width=True)
-    else:
-        st.info("No hay composición nutricional disponible para mostrar.")
-
-    # ----------- Humedad de la Dieta Formulada -----------
-    if diet and ingredientes_df_filtrado is not None and "Humedad" in ingredientes_df_filtrado.columns:
-        humedad_ponderada = 0.0
-        for ing, porcentaje in diet.items():
-            row = ingredientes_df_filtrado[ingredientes_df_filtrado["Ingrediente"] == ing]
-            if not row.empty:
-                humedad_ing = float(row["Humedad"].values[0])
-                humedad_ponderada += (porcentaje / 100.0) * humedad_ing
-        st.markdown(f"**Humedad de la Dieta:** {fmt2(humedad_ponderada)}%")
-
-# ======================== BLOQUE AUXILIARES PARA BLOQUE 8 (GRÁFICOS) ========================
+# ======================== FUNCIONES AUXILIARES ========================
 def mf_a_ms(gramos_mf, humedad_pct):
     """Convierte gramos en Materia Fresca a Materia Seca usando el % de humedad."""
     return gramos_mf * (100.0 - humedad_pct) / 100.0
@@ -665,552 +565,8 @@ def get_unidades_dict(nutrientes):
     }
     return {nut: ref.get(nut, default) for nut in nutrientes}
 
-# --- Cargar escenarios (stub, deberías implementar persistencia real según tu flujo) ---
-def cargar_escenarios():
-    return []
-
-def guardar_escenarios(escenarios):
-    pass
-
-# ======================== BLOQUE 8: TAB GRÁFICOS DINÁMICOS (DISTRIBUCIÓN SOLO EN PASTEL EN SUBTAB) ========================
+# ======================== BLOQUE 9: RESUMEN Y EXPORTAR ========================
 with tabs[2]:
-    st.header("Gráficos de la formulación")
-
-    actualizar_graficos = st.button("Actualizar gráficos", key="actualizar_graficos_tab2")
-    if actualizar_graficos:
-        st.rerun()
-
-    diet = st.session_state.get("last_diet", None)
-    nutritional_values = st.session_state.get("last_nutritional_values", {})
-    ingredientes_seleccionados = list(st.session_state.get("last_diet", {}).keys())
-    nutrientes_seleccionados = st.session_state.get("nutrientes_seleccionados", [])
-    ingredients_df = st.session_state.get("ingredients_df", None)
-    total_cost = st.session_state.get("last_cost", 0)
-    unidades_dict = get_unidades_dict(nutrientes_seleccionados)
-    dosis_g = st.session_state.get("dosis_dieta_g_formulacion", 1000)
-
-    # ============= SUBTABS DE GRÁFICOS ==============
-    subtab_dist, subtab1, subtab2, subtab3 = st.tabs([
-        "Distribución de la dieta",
-        "Costo Total por Ingrediente",
-        "Aporte por Ingrediente a Nutrientes",
-        "Precio Sombra por Nutriente (Shadow Price)"
-    ])
-
-    # ---------- SUBTAB: Distribución de la dieta (solo pastel) ----------
-    with subtab_dist:
-        st.subheader("Distribución de la dieta por ingrediente")
-        if diet and ingredients_df is not None and not ingredients_df.empty:
-            ingredientes_sel = list(diet.keys())
-            distribucion_data = []
-            for ing in ingredientes_sel:
-                porcentaje = diet.get(ing, 0.0)
-                gramos = (porcentaje / 100.0) * dosis_g
-                distribucion_data.append({
-                    "Ingrediente": ing,
-                    "% Inclusión": porcentaje,
-                    "Gramos en dosis": gramos
-                })
-            df_dist = pd.DataFrame(distribucion_data)
-
-            # --- Gráfico de pastel (% inclusión) ---
-            import plotly.graph_objects as go
-            fig_pie = go.Figure(go.Pie(
-                labels=df_dist["Ingrediente"],
-                values=df_dist["% Inclusión"],
-                textinfo="label+percent",
-                hole=0.35
-            ))
-            fig_pie.update_layout(title="Proporción % de cada ingrediente en la dieta")
-            st.plotly_chart(fig_pie, use_container_width=True)
-
-            # --- Tabla resumen ---
-            st.markdown("#### Tabla de distribución")
-            st.dataframe(df_dist.set_index("Ingrediente"), use_container_width=True)
-        else:
-            st.info("Formula una dieta y selecciona ingredientes para ver la distribución.")
-
-    # ---------- SUBTAB 1: Costo Total por Ingrediente ----------
-    with subtab1:
-        if diet and ingredients_df is not None and not ingredients_df.empty:
-            df_formula = ingredients_df.copy()
-            df_formula["% Inclusión"] = df_formula["Ingrediente"].map(diet).fillna(0)
-            df_formula["precio"] = df_formula["precio"].fillna(0)
-            df_formula = df_formula[df_formula["Ingrediente"].isin(diet.keys())].reset_index(drop=True)
-            ingredientes_seleccionados = list(df_formula["Ingrediente"])
-            color_map = get_color_map(ingredientes_seleccionados)
-
-            manual_unit = unit_selector(
-                "Unidad para mostrar el costo total por ingrediente",
-                ['USD/kg', 'USD/ton'],
-                'USD/ton',
-                key="unit_selector_costototal_tab1"
-            )
-            factor = 1 if manual_unit == 'USD/kg' else 10
-            label = manual_unit
-            costos = [
-                float(row["precio"]) * float(row["% Inclusión"]) / 100 * factor
-                if pd.notnull(row["precio"]) and pd.notnull(row["% Inclusión"]) else 0
-                for _, row in df_formula.iterrows()
-            ]
-            suma_costos = sum(costos)
-            suma_inclusion = sum(df_formula["% Inclusión"])
-            proporciones = [
-                float(row["% Inclusión"]) * 100 / suma_inclusion if suma_inclusion > 0 else 0
-                for _, row in df_formula.iterrows()
-            ]
-
-            # --------- SOLO GRÁFICO DE PASTEL ---------
-            fig_pie = go.Figure(go.Pie(
-                labels=ingredientes_seleccionados,
-                values=costos,
-                marker_colors=[color_map[ing] for ing in ingredientes_seleccionados],
-                hoverinfo="label+percent+value",
-                textinfo="label+percent",
-                hole=0.3
-            ))
-            fig_pie.update_layout(title="Participación de cada ingrediente en el costo total")
-            st.plotly_chart(fig_pie, use_container_width=True)
-
-            df_costos = pd.DataFrame({
-                "Ingrediente": ingredientes_seleccionados,
-                f"Costo aportado ({label})": [fmt2(c) for c in costos],
-                "% Inclusión": [fmt2(row["% Inclusión"]) for _, row in df_formula.iterrows()],
-                "Proporción dieta (%)": [fmt2(p) for p in proporciones],
-                "Precio ingrediente (USD/kg)": [fmt2(row["precio"]) for _, row in df_formula.iterrows()],
-            })
-            st.dataframe(fmt2_df(df_costos), use_container_width=True)
-            st.markdown(f"**Costo total de la fórmula:** {fmt2(suma_costos)} {label} (suma de los ingredientes). Puedes cambiar la unidad.")
-        else:
-            st.info("No hay ingredientes o dieta formulada para mostrar el costo total.")
-
-    # ---------- SUBTAB 2: Aporte por Ingrediente a Nutrientes ----------
-    with subtab2:
-        unit_options = {
-            'kg': ['kg', 'ton'],
-            'g': ['g', '100g', 'kg', 'ton'],
-            'kcal': ['kcal', '1000kcal'],
-            '%': ['%', '100 unidades'],
-            'unidad': ['unidad', '100 unidades', '1000 unidades', 'kg', 'ton'],
-        }
-        if diet and ingredients_df is not None and not ingredients_df.empty and nutrientes_seleccionados:
-            df_formula = ingredients_df.copy()
-            df_formula["% Inclusión"] = df_formula["Ingrediente"].map(diet).fillna(0)
-            df_formula = df_formula[df_formula["Ingrediente"].isin(diet.keys())].reset_index(drop=True)
-            ingredientes_seleccionados = list(df_formula["Ingrediente"])
-            color_map = get_color_map(ingredientes_seleccionados)
-
-            nut_tabs = st.tabs([nut for nut in nutrientes_seleccionados])
-            for i, nut in enumerate(nutrientes_seleccionados):
-                with nut_tabs[i]:
-                    unit = unidades_dict.get(nut, "unidad")
-                    manual_unit = unit_selector(
-                        f"Unidad para {nut}",
-                        unit_options.get(unit, ["unidad", "100 unidades", "1000 unidades", "kg", "ton"]),
-                        unit_options.get(unit, ["unidad"])[0],
-                        key=f"unit_selector_{nut}_aporte_tab1"
-                    )
-                    factor, label = get_unit_factor(unit, manual_unit)
-                    valores = []
-                    porc_aporte = []
-                    total_nut = sum([
-                        (float(df_formula.loc[df_formula["Ingrediente"] == ing, nut].values[0]) *
-                         float(df_formula[df_formula["Ingrediente"] == ing]["% Inclusión"].values[0]) / 100 * factor)
-                        if nut in df_formula.columns and
-                           pd.notnull(df_formula.loc[df_formula["Ingrediente"] == ing, nut].values[0]) else 0
-                        for ing in ingredientes_seleccionados
-                    ])
-                    for ing in ingredientes_seleccionados:
-                        valor = float(df_formula.loc[df_formula["Ingrediente"] == ing, nut].values[0]) \
-                            if nut in df_formula.columns and pd.notnull(df_formula.loc[df_formula["Ingrediente"] == ing, nut].values[0]) else 0
-                        porc = float(df_formula[df_formula["Ingrediente"] == ing]["% Inclusión"].values[0])
-                        aporte = valor * porc / 100 * factor
-                        valores.append(aporte)
-                        porc_aporte.append(100 * aporte / total_nut if total_nut > 0 else 0)
-                    df_aporte = pd.DataFrame({
-                        "Ingrediente": ingredientes_seleccionados,
-                        f"Aporte de {nut} ({label})": [fmt2(v) for v in valores],
-                        "% Inclusión": [fmt2(df_formula[df_formula["Ingrediente"] == ing]["% Inclusión"].values[0]) for ing in ingredientes_seleccionados],
-                        "Contenido por kg": [fmt2(df_formula[df_formula["Ingrediente"] == ing][nut].values[0]) if nut in df_formula.columns else "" for ing in ingredientes_seleccionados],
-                        f"Proporción aporte {nut} (%)": [fmt2(p) for p in porc_aporte],
-                    })
-                    fig = go.Figure()
-                    fig.add_trace(go.Bar(
-                        x=ingredientes_seleccionados,
-                        y=valores,
-                        marker_color=[color_map[ing] for ing in ingredientes_seleccionados],
-                        text=[fmt2(v) for v in valores],
-                        textposition='auto',
-                        customdata=porc_aporte,
-                        hovertemplate='%{x}<br>Aporte: %{y:.2f} ' + label + '<br>Proporción aporte: %{customdata:.2f}%<extra></extra>',
-                    ))
-                    fig.update_layout(
-                        xaxis_title="Ingrediente",
-                        yaxis_title=f"Aporte de {nut} ({label})",
-                        title=f"Aporte de cada ingrediente a {nut} ({label})",
-                        template="simple_white"
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(fmt2_df(df_aporte), use_container_width=True)
-                    st.markdown(
-                        f"Puedes ajustar la unidad para visualizar el aporte en la escala más útil para tu análisis."
-                    )
-        else:
-            st.info("Selecciona al menos un nutriente para visualizar los aportes por ingrediente.")
-
-    # ---------- SUBTAB 3: Precio sombra por nutriente ----------
-    with subtab3:
-        unit_options = {
-            'kg': ['kg', 'ton'],
-            'g': ['g', '100g', 'kg', 'ton'],
-            'kcal': ['kcal', '1000kcal'],
-            '%': ['%', '100 unidades'],
-            'unidad': ['unidad', '100 unidades', '1000 unidades', 'kg', 'ton'],
-        }
-        if diet and ingredients_df is not None and not ingredients_df.empty and nutrientes_seleccionados:
-            df_formula = ingredients_df.copy()
-            df_formula["% Inclusión"] = df_formula["Ingrediente"].map(diet).fillna(0)
-            df_formula = df_formula[df_formula["Ingrediente"].isin(diet.keys())].reset_index(drop=True)
-            ingredientes_seleccionados = list(df_formula["Ingrediente"])
-            color_map = get_color_map(ingredientes_seleccionados)
-
-            shadow_tab = st.tabs([nut for nut in nutrientes_seleccionados])
-            for idx, nut in enumerate(nutrientes_seleccionados):
-                with shadow_tab[idx]:
-                    unit = unidades_dict.get(nut, "unidad")
-                    manual_unit = unit_selector(
-                        f"Unidad para {nut}",
-                        unit_options.get(unit, ["unidad", "100 unidades", "1000 unidades", "kg", "ton"]),
-                        unit_options.get(unit, ["unidad"])[0],
-                        key=f"unit_selector_{nut}_shadow_tab1"
-                    )
-                    factor, label = get_unit_factor(unit, manual_unit)
-                    precios_unit = []
-                    contenidos = []
-                    precios_ing = []
-                    for i, ing in enumerate(ingredientes_seleccionados):
-                        row = df_formula[df_formula["Ingrediente"] == ing].iloc[0]
-                        contenido = float(row.get(nut, 0))
-                        precio = float(row.get("precio", np.nan))
-                        if pd.notnull(contenido) and contenido > 0 and pd.notnull(precio):
-                            precios_unit.append(precio / contenido * factor)
-                        else:
-                            precios_unit.append(np.nan)
-                        contenidos.append(contenido)
-                        precios_ing.append(precio)
-                    df_shadow = pd.DataFrame({
-                        "Ingrediente": ingredientes_seleccionados,
-                        f"Precio por {manual_unit}": [fmt2(v) if pd.notnull(v) else "" for v in precios_unit],
-                        f"Contenido de {nut} por kg": [fmt2(c) for c in contenidos],
-                        "Precio ingrediente (USD/kg)": [fmt2(p) for p in precios_ing],
-                    })
-                    precios_unit_np = np.array([v if pd.notnull(v) else np.inf for v in precios_unit])
-                    if len(precios_unit_np) > 0 and np.isfinite(precios_unit_np).any():
-                        min_idx = int(np.nanargmin(precios_unit_np))
-                        df_shadow["Es el más barato"] = ["✅" if i == min_idx else "" for i in range(len(df_shadow))]
-                        bar_colors = ['green' if i == min_idx else 'royalblue' for i in range(len(df_shadow))]
-                    else:
-                        min_idx = None
-                        df_shadow["Es el más barato"] = ["" for _ in range(len(df_shadow))]
-                        bar_colors = ['royalblue' for _ in range(len(df_shadow))]
-                    fig_shadow = go.Figure()
-                    fig_shadow.add_trace(go.Bar(
-                        x=df_shadow["Ingrediente"],
-                        y=[v if pd.notnull(v) else 0 for v in precios_unit],
-                        marker_color=bar_colors,
-                        text=[fmt2(v) if pd.notnull(v) else "" for v in precios_unit],
-                        textposition='auto',
-                        customdata=df_shadow["Es el más barato"],
-                        hovertemplate=f'%{{x}}<br>Precio sombra: %{{y:.2f}} {label}<br>%{{customdata}}<extra></extra>',
-                    ))
-                    fig_shadow.update_layout(
-                        xaxis_title="Ingrediente",
-                        yaxis_title=label,
-                        title=f"Precio sombra y costo por ingrediente para {nut}",
-                        template="simple_white"
-                    )
-                    st.plotly_chart(fig_shadow, use_container_width=True)
-                    st.dataframe(fmt2_df(df_shadow), use_container_width=True)
-                    st.markdown(
-                        f"**El precio sombra de {nut} es el menor costo posible para obtener una unidad de este nutriente usando el ingrediente más barato en la fórmula.**\n\n"
-                        f"- Puedes ajustar la unidad para mejorar la visualización.\n"
-                        f"- El ingrediente marcado con ✅ aporta el precio sombra."
-                    )
-        else:
-            st.info("Selecciona al menos un nutriente para visualizar el precio sombra por ingrediente.")
-
-# ======================== BLOQUE 10: TAB COMPARATIVO DINÁMICO ========================
-def calcular_nutrientes_en_dosis(dieta, ingredientes_df, gramos_totales):
-    """
-    Calcula nutrientes obtenidos en gramos_totales de dieta.
-    Para nutrientes en %/mg/UI por 100 kg: aporte = (% inclusión / 100) × val × gramos_totales / 100
-    Para energía (kcal/kg):               aporte = (% inclusión / 100) × val × gramos_totales / 1000
-    """
-    resultado = {}
-    if ingredientes_df is None or ingredientes_df.empty:
-        return resultado
-    exclude_cols = {"Ingrediente", "precio", "Materia seca (%)", "Categoría"}
-    nut_cols = [c for c in ingredientes_df.columns if c not in exclude_cols]
-    for nut_col in nut_cols:
-        total = 0.0
-        for ing, porcentaje in dieta.items():
-            row = ingredientes_df[ingredientes_df["Ingrediente"] == ing]
-            if row.empty:
-                continue
-            val = row[nut_col].values[0]
-            try:
-                val = float(val)
-            except (ValueError, TypeError):
-                continue
-            if pd.isna(val):
-                continue
-            if "EM" in nut_col or "Energía" in nut_col:
-                # Energía metabolizable (EM) está en kcal/kg de ingrediente.
-                # Se pondera por % de inclusión y se escala por la dosis.
-                # (% / 100) × kcal/kg × (gramos / 1000) → kcal aportadas por este ingrediente.
-                total += (porcentaje / 100.0) * val * gramos_totales / 1000.0
-            else:
-                # Otros nutrientes (%, mg/kg, UI/kg): aporte proporcional al % de inclusión.
-                # val está expresado por 100 kg de ingrediente; gramos_totales en gramos.
-                total += (porcentaje / 100.0) * val * gramos_totales / 100.0
-        resultado[nut_col] = total
-    return resultado
-
-
-def generar_comparativo(requerimientos_perro, nutrientes_obtenidos, mer_final=None):
-    """
-    Genera DataFrame comparativo entre requerimientos del perro y lo que aporta la dieta.
-    requerimientos_perro: DataFrame con columnas Nutriente, Min Ajustado, Max Ajustado, Unidad
-    nutrientes_obtenidos: dict {nutriente: valor_obtenido}
-    mer_final: requerimiento energético diario del animal (kcal/día), usado para comparar energía
-    """
-    rows = []
-    for _, row in requerimientos_perro.iterrows():
-        nut = row.get("Nutriente", "")
-        min_str = row.get("Min Ajustado", "-")
-        max_str = row.get("Max Ajustado", "-")
-        unidad = row.get("Unidad", "")
-
-        try:
-            min_req = float(min_str) if min_str not in ["-", "", None, "None"] else None
-        except (ValueError, TypeError):
-            min_req = None
-        try:
-            max_req = float(max_str) if max_str not in ["-", "", None, "None"] else None
-        except (ValueError, TypeError):
-            max_req = None
-
-        obtenido = nutrientes_obtenidos.get(nut, None)
-
-        if obtenido is None:
-            cumple = "-"
-            obtenido_str = "-"
-        else:
-            obtenido_str = fmt2(obtenido)
-            try:
-                obt_f = float(obtenido)
-                if min_req is not None and max_req is not None:
-                    if min_req <= obt_f <= max_req:
-                        cumple = "✅"
-                    elif obt_f < min_req:
-                        cumple = "⚠️ BAJO"
-                    else:
-                        cumple = "⚠️ ALTO"
-                elif min_req is not None:
-                    cumple = "✅" if obt_f >= min_req else "⚠️ BAJO"
-                else:
-                    cumple = "-"
-            except (ValueError, TypeError):
-                cumple = "-"
-
-        rows.append({
-            "Nutriente": nut,
-            "Necesita (Min)": fmt2(min_req) if min_req is not None else "-",
-            "Necesita (Max)": fmt2(max_req) if max_req is not None else "-",
-            "Obtiene": obtenido_str,
-            "Unidad": unidad,
-            "Cumple": cumple,
-        })
-
-    comparativo_df = pd.DataFrame(rows)
-
-    # Agregar fila de Energía metabolizable si no está en los requerimientos
-    if "Energía metabolizable (EM)" not in comparativo_df["Nutriente"].values:
-        # El optimizer almacena la energía con la clave "EM"; también buscar la clave larga
-        em_obtenido = nutrientes_obtenidos.get("Energía metabolizable (EM)") or nutrientes_obtenidos.get("EM")
-        # Usar mer_final como requerimiento mínimo de energía (kcal/día del animal)
-        em_min_req = mer_final if mer_final is not None else None
-        if em_obtenido is not None:
-            em_obt_f = float(em_obtenido)
-            if em_min_req is not None:
-                em_cumple = "✅" if em_obt_f >= em_min_req else "⚠️ BAJO"
-            else:
-                em_cumple = "-"
-            em_obtenido_str = fmt2(em_obt_f)
-        else:
-            em_cumple = "-"
-            em_obtenido_str = "-"
-        em_row = pd.DataFrame([{
-            "Nutriente": "Energía metabolizable (EM)",
-            "Necesita (Min)": fmt2(em_min_req) if em_min_req is not None else "-",
-            "Necesita (Max)": "-",
-            "Obtiene": em_obtenido_str,
-            "Unidad": "kcal",
-            "Cumple": em_cumple,
-        }])
-        comparativo_df = pd.concat([em_row, comparativo_df], ignore_index=True)
-
-    return comparativo_df
-
-
-with tabs[3]:
-    st.header("Comparativo Nutricional: Necesita vs Obtiene")
-
-    # Validaciones previas
-    requerimientos_perro = st.session_state.get("tabla_requerimientos_base")
-    dieta_formulada = st.session_state.get("last_diet")
-    ingredientes_df_comp = st.session_state.get("ingredients_df")
-    nutritional_values_per_kg = st.session_state.get("last_nutritional_values", {})
-
-    if requerimientos_perro is None or requerimientos_perro.empty or not dieta_formulada:
-        st.warning("⚠️ Completa primero el Perfil (Tab 1) y la Formulación (Tab 2)")
-        st.stop()
-
-    # ── Sección 1: Selector de dosis ─────────────────────────────────────────
-    st.subheader("1. Dosis Diaria")
-    col_inp, col_btn = st.columns([4, 1])
-    with col_inp:
-        gramos_a_dar = st.number_input(
-            "¿Cuántos gramos de dieta dará al día?",
-            min_value=50,
-            max_value=5000,
-            value=int(st.session_state.get("gramos_a_dar", 500)),
-            step=50,
-            key="gramos_comparativo_input",
-        )
-    with col_btn:
-        st.write("")
-        st.write("")
-        calcular_btn = st.button("🔄 Calcular", key="btn_calcular_comparativo")
-
-    if calcular_btn:
-        st.session_state["gramos_a_dar"] = gramos_a_dar
-
-    gramos_a_dar = st.session_state.get("gramos_a_dar", gramos_a_dar)
-
-    # ── Calcular humedad de la dieta y convertir MF → MS ─────────────────────
-    humedad_dieta = 0.0
-    tiene_humedad = (
-        dieta_formulada
-        and ingredientes_df_comp is not None
-        and "Humedad" in ingredientes_df_comp.columns
-    )
-    if tiene_humedad:
-        for ing, porcentaje in dieta_formulada.items():
-            row = ingredientes_df_comp[ingredientes_df_comp["Ingrediente"] == ing]
-            if not row.empty:
-                humedad_ing = float(row["Humedad"].values[0])
-                humedad_dieta += (porcentaje / 100.0) * humedad_ing
-    else:
-        st.warning(
-            "⚠️ La columna 'Humedad' no está disponible en la matriz de ingredientes. "
-            "Los cálculos de nutrientes se realizarán sobre la dosis en Materia Fresca sin conversión."
-        )
-
-    gramos_ms = mf_a_ms(gramos_a_dar, humedad_dieta)
-
-    st.info(
-        f"**Dosis ingresada:** {gramos_a_dar}g Materia Fresca | "
-        f"**Equivalente MS:** {fmt2(gramos_ms)}g | "
-        f"**Humedad dieta:** {fmt2(humedad_dieta)}%"
-    )
-
-    # ── Calcular "Obtiene" ────────────────────────────────────────────────────
-    # Usar gramos en Materia Seca para calcular nutrientes correctamente.
-    nutrientes_obtenidos = calcular_nutrientes_en_dosis(
-        dieta_formulada, ingredientes_df_comp, gramos_ms
-    )
-
-    st.session_state["nutrientes_obtenidos_final"] = nutrientes_obtenidos
-
-    # ── Sección 2: Tabla Comparativa ─────────────────────────────────────────
-    st.subheader("2. Tabla Comparativa")
-    mer_final_tab3 = st.session_state.get("energia_actual")
-    comparativo_df = generar_comparativo(requerimientos_perro, nutrientes_obtenidos, mer_final=mer_final_tab3)
-    st.session_state["comparativo_final"] = comparativo_df
-
-    if not comparativo_df.empty:
-        st.dataframe(
-            comparativo_df.set_index("Nutriente"),
-            use_container_width=True,
-            height=420,
-        )
-    else:
-        st.info("No hay datos para mostrar el comparativo.")
-
-    # ── Sección 3: Métricas de cumplimiento ──────────────────────────────────
-    with st.expander("📊 3. Métricas de Cumplimiento", expanded=False):
-        if not comparativo_df.empty:
-            evaluados = comparativo_df[comparativo_df["Cumple"] != "-"]
-            total_evaluados = len(evaluados)
-            cumplen = int((evaluados["Cumple"] == "✅").sum())
-            fuera_rango = int(evaluados["Cumple"].isin(["⚠️ BAJO", "⚠️ ALTO"]).sum())
-            porc = (cumplen / total_evaluados * 100) if total_evaluados > 0 else 0.0
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Cumplimiento", f"{porc:.1f}%")
-            with col2:
-                st.metric("✅ Nutrientes que cumplen", cumplen)
-            with col3:
-                st.metric("⚠️ Fuera de rango", fuera_rango)
-
-            bajos = evaluados[evaluados["Cumple"] == "⚠️ BAJO"]["Nutriente"].tolist()
-            altos = evaluados[evaluados["Cumple"] == "⚠️ ALTO"]["Nutriente"].tolist()
-
-            if bajos:
-                st.warning(
-                    f"⚠️ **Nutrientes BAJOS** ({len(bajos)}): {', '.join(bajos)}\n\n"
-                    f"💡 Sugerencia: Aumenta los gramos de dieta diaria o reformula con ingredientes "
-                    f"más ricos en estos nutrientes."
-                )
-            if altos:
-                st.warning(
-                    f"⚠️ **Nutrientes ALTOS** ({len(altos)}): {', '.join(altos)}\n\n"
-                    f"💡 Sugerencia: Reduce los gramos de dieta diaria o ajusta la formulación "
-                    f"para disminuir estos nutrientes."
-                )
-
-    # ── Sección 4: Desglose expandible ───────────────────────────────────────
-    with st.expander("4. Desglose de ingredientes en la dosis (Materia Fresca vs Materia Seca)"):
-        desglose_rows = []
-        for ing, porcentaje in dieta_formulada.items():
-            gramos_mf = (porcentaje / 100.0) * gramos_a_dar
-            row = ingredientes_df_comp[ingredientes_df_comp["Ingrediente"] == ing] if ingredientes_df_comp is not None else pd.DataFrame()
-            if not row.empty and "Humedad" in row.columns:
-                humedad_ing = float(row["Humedad"].values[0])
-                gramos_ms_ing = mf_a_ms(gramos_mf, humedad_ing)
-                humedad_display = fmt2(humedad_ing)
-                gramos_ms_display = fmt2(gramos_ms_ing)
-            else:
-                humedad_display = "N/A"
-                gramos_ms_display = "N/A"
-            desglose_rows.append({
-                "Ingrediente": ing,
-                "% Inclusión": fmt2(porcentaje),
-                "Gramos MF": fmt2(gramos_mf),
-                "Humedad %": humedad_display,
-                "Gramos MS": gramos_ms_display,
-            })
-        desglose_df = pd.DataFrame(desglose_rows)
-        if not desglose_df.empty:
-            st.dataframe(desglose_df.set_index("Ingrediente"), use_container_width=True)
-            st.info("**MF:** Materia Fresca | **MS:** Materia Seca")
-        else:
-            st.info("No hay ingredientes en la dieta formulada.")
-
-# ======================== BLOQUE 9: RESUMEN Y EXPORTAR (FOTO, GUARDAR, ELIMINAR, SIN DRAG SI YA HAY FOTO) ========================
-with tabs[4]:
     st.header("Resumen general y exportación")
 
     # --- CSS de tabla bonita (igual que requerimientos) ---
@@ -1280,9 +636,6 @@ with tabs[4]:
     cols = st.columns([1, 3])
 
     with cols[0]:
-        from PIL import Image
-        import io
-
         # --- FOTO UX MEJORADO ---
         foto_guardada = st.session_state.get("mascota_foto", None)
         nueva_foto = None
@@ -1335,7 +688,151 @@ with tabs[4]:
         - <b>Condición:</b> {mascota.get('condicion', 'No definido')}
         """, unsafe_allow_html=True)
 
-    # === 2. Dieta (proporciones y gramos) ===
+    # === 2. Requerimiento Energético del Animal ===
+    st.subheader("⚡ Requerimiento Energético del Animal")
+    mer_animal = st.session_state.get("energia_actual", None)
+    energia_basal = calcular_rer(mascota.get("peso", 0)) if mascota.get("peso") else None
+
+    if mer_animal is not None and energia_basal is not None:
+        factor_cond = round(mer_animal / energia_basal, 2) if energia_basal and energia_basal > 1e-6 else "-"
+        col_r1, col_r2, col_r3 = st.columns(3)
+        with col_r1:
+            st.metric("🔋 RER (Energía en Reposo)", f"{energia_basal:.1f} kcal/día")
+        with col_r2:
+            st.metric("🎯 MER (Requerimiento Diario)", f"{mer_animal:.1f} kcal/día")
+        with col_r3:
+            st.metric("⚙️ Factor de Condición", str(factor_cond))
+    else:
+        st.info("Completa el perfil de la mascota en la pestaña **Perfil de Mascota** para ver los requerimientos energéticos.")
+
+    # === 3. Composición de Alimentos Seleccionados (food_database) ===
+    st.subheader("🥗 Composición Nutricional de Alimentos Balanceados")
+
+    food_names_all = get_food_names_db()
+    selected_alimentos = st.multiselect(
+        "Selecciona alimentos para ver su composición",
+        food_names_all,
+        default=food_names_all[:2] if len(food_names_all) >= 2 else food_names_all,
+        key="resumen_alimentos_selector",
+    )
+
+    if selected_alimentos:
+        comp_alimentos_rows = []
+        for fname in selected_alimentos:
+            fdata = FOODS.get(fname, {})
+            if fdata:
+                ena = calc_ena_food(fdata)
+                energy_f = calc_energy_food(fdata)
+                comp_alimentos_rows.append({
+                    "Alimento": fname,
+                    "Categoría": fdata.get("category", ""),
+                    "PB (%)": fdata["PB"],
+                    "EE (%)": fdata["EE"],
+                    "Cenizas (%)": fdata["Ash"],
+                    "Humedad (%)": fdata["Humidity"],
+                    "FC (%)": fdata["FC"],
+                    "ENA (%)": round(ena, 2),
+                    "ME (kcal/100g)": round(energy_f["ME"], 2),
+                })
+        comp_alimentos_df = pd.DataFrame(comp_alimentos_rows)
+        st.dataframe(comp_alimentos_df.set_index("Alimento"), use_container_width=True)
+
+        # Gráfico radar de macronutrientes por alimento
+        st.markdown("**Gráfico Radar: Macronutrientes por Alimento**")
+        radar_fig = go.Figure()
+        radar_cats = ["PB (%)", "EE (%)", "Cenizas (%)", "FC (%)", "ENA (%)"]
+        colors_radar = RADAR_CHART_COLORS
+        for idx, fname in enumerate(selected_alimentos):
+            fdata = FOODS.get(fname, {})
+            if fdata:
+                ena = calc_ena_food(fdata)
+                vals = [fdata["PB"], fdata["EE"], fdata["Ash"], fdata["FC"], round(ena, 2)]
+                vals_closed = vals + [vals[0]]
+                cats_closed = radar_cats + [radar_cats[0]]
+                radar_fig.add_trace(go.Scatterpolar(
+                    r=vals_closed,
+                    theta=cats_closed,
+                    fill="toself",
+                    name=fname,
+                    line_color=colors_radar[idx % len(colors_radar)],
+                    opacity=0.6,
+                ))
+        radar_fig.update_layout(
+            polar=dict(radialaxis=dict(visible=True)),
+            showlegend=True,
+            height=420,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            legend=dict(orientation="h", yanchor="bottom", y=-0.35, xanchor="center", x=0.5),
+            margin=dict(t=40, b=100, l=40, r=40),
+        )
+        st.plotly_chart(radar_fig, use_container_width=True)
+
+        # Aporte Energético Total si hay MER
+        if mer_animal and mer_animal > 0:
+            st.markdown("**Aporte Energético Total de los Alimentos Seleccionados**")
+            aporte_total_kcal = 0.0
+            aporte_por_alimento = []
+            for fname in selected_alimentos:
+                fdata = FOODS.get(fname, {})
+                if fdata:
+                    gramos_key = f"gramos_alimento_{fname}"
+                    gramos_sel = st.session_state.get(gramos_key, 0.0)
+                    energy_f = calc_energy_food(fdata)
+                    aporte_kcal = (energy_f["ME"] / 100.0) * gramos_sel
+                    aporte_total_kcal += aporte_kcal
+                    aporte_por_alimento.append({
+                        "Alimento": fname,
+                        "Gramos/día": gramos_sel,
+                        "ME (kcal/100g)": round(energy_f["ME"], 2),
+                        "Aporte (kcal/día)": round(aporte_kcal, 2),
+                    })
+            aporte_df = pd.DataFrame(aporte_por_alimento)
+            st.dataframe(aporte_df.set_index("Alimento"), use_container_width=True)
+
+            cobertura_total = (aporte_total_kcal / mer_animal) * 100.0
+            st.metric(
+                "📊 Cobertura Energética Total",
+                f"{cobertura_total:.1f}%",
+                delta=f"{aporte_total_kcal:.1f} kcal de {mer_animal:.1f} kcal requeridas",
+            )
+
+            # Gráfico de barras: Requerimiento vs Aporte Total
+            fig_comp_bar = go.Figure()
+            fig_comp_bar.add_trace(go.Bar(
+                name="MER Requerida",
+                x=["Energía (kcal/día)"],
+                y=[mer_animal],
+                marker_color="#8E9AAF",
+                text=[f"{mer_animal:.1f} kcal"],
+                textposition="outside",
+            ))
+            fig_comp_bar.add_trace(go.Bar(
+                name="Aporte Total Alimentos",
+                x=["Energía (kcal/día)"],
+                y=[aporte_total_kcal],
+                marker_color="#2176FF" if cobertura_total <= ENERGY_COVERAGE_THRESHOLD else "#FFB703",
+                text=[f"{aporte_total_kcal:.1f} kcal ({cobertura_total:.0f}%)"],
+                textposition="outside",
+            ))
+            fig_comp_bar.update_layout(
+                barmode="group",
+                title=dict(
+                    text="Requerimiento Energético vs Aporte Total",
+                    font=dict(size=15, family="Montserrat, sans-serif"),
+                ),
+                yaxis_title="kcal / día",
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                height=360,
+                margin=dict(t=60, b=40, l=60, r=40),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+            )
+            st.plotly_chart(fig_comp_bar, use_container_width=True)
+    else:
+        st.info("Selecciona al menos un alimento para ver su composición nutricional.")
+
+    # === 4. Dieta (proporciones y gramos) ===
     st.subheader("Composición de la dieta formulada")
     result = st.session_state.get("last_result", None)
     diet = result.get("diet", {}) if result is not None else {}
@@ -1369,7 +866,7 @@ with tabs[4]:
     else:
         st.info("No hay ingredientes para mostrar la dieta. Por favor, formula primero la dieta y selecciona ingredientes.")
 
-    # === 3. Precio de la dieta ===
+    # === 5. Precio de la dieta ===
     st.subheader("Precio de la dieta")
     if result is not None:
         total_cost = result.get("cost", 0)
@@ -1383,7 +880,7 @@ with tabs[4]:
     st.markdown(f"- <b>Precio por kg:</b> ${fmt2(precio_kg)}", unsafe_allow_html=True)
     st.markdown(f"- <b>Precio por dosis diaria:</b> ${fmt2(precio_dosis)}", unsafe_allow_html=True)
 
-    # === 4. Tabla Unificada de Requerimientos y Composición Obtenida ===
+    # === 6. Tabla Unificada de Requerimientos y Composición Obtenida ===
     st.subheader("Requerimientos y composición obtenida (por kg dieta)")
     user_requirements = st.session_state.get("nutrientes_requeridos", {})
     nutritional_values = result.get("nutritional_values", {}) if result is not None else {}
@@ -1441,11 +938,8 @@ with tabs[4]:
     else:
         st.info("No hay requerimientos ni composición nutricional para mostrar.")
 
-    # === 5. Exportar a Excel ===
+    # === 7. Exportar a Excel ===
     st.subheader("Exportar resumen a Excel")
-
-    import io
-    import pandas as pd
 
     perfil_df = pd.DataFrame([mascota])
     dieta_df = res_df
@@ -1454,10 +948,18 @@ with tabs[4]:
         "Precio por kg": fmt2(precio_kg),
         "Precio por dosis": fmt2(precio_dosis)
     }])
+    energia_df_export = pd.DataFrame([{
+        "RER (kcal/día)": round(energia_basal, 2) if energia_basal else "-",
+        "MER (kcal/día)": round(mer_animal, 2) if mer_animal else "-",
+        "Factor de condición": factor_cond if mer_animal and energia_basal else "-",
+    }])
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         perfil_df.to_excel(writer, sheet_name='Perfil Mascota', index=False)
+        energia_df_export.to_excel(writer, sheet_name='Requerimiento Energético', index=False)
+        if selected_alimentos and not comp_alimentos_df.empty:
+            comp_alimentos_df.reset_index().to_excel(writer, sheet_name='Alimentos Balanceados', index=False)
         dieta_df.to_excel(writer, sheet_name='Dieta', index=False)
         precio_df.to_excel(writer, sheet_name='Precio', index=False)
         unified_df.to_excel(writer, sheet_name='Requerimientos y Composición', index=False)

@@ -25,6 +25,9 @@ LABELS = {
     "ENA": "Carbohidratos (ENA)",
 }
 
+# Umbral de cobertura energética para alertas visuales (%)
+ENERGY_COVERAGE_THRESHOLD = 110
+
 
 def plot_macronutrients(food_name, food_data):
     """
@@ -317,6 +320,105 @@ def show_food_analysis():
     )
 
     st.plotly_chart(plot_energy_funnel(food_name, energy), use_container_width=True)
+
+    # ---- Cálculo de Aporte Energético ----
+    st.subheader("🧮 Cálculo de Aporte Energético")
+    st.markdown(
+        "Ingresa los **gramos diarios** del alimento seleccionado para calcular el aporte energético "
+        "y compararlo con el requerimiento diario de la mascota (MER)."
+    )
+
+    gramos_key = f"gramos_alimento_{food_name}"
+    gramos_input = st.number_input(
+        f"Gramos diarios de **{food_name}**",
+        min_value=0.0,
+        max_value=5000.0,
+        value=float(st.session_state.get(gramos_key, 100.0)),
+        step=10.0,
+        key=gramos_key,
+    )
+
+    # Energía metabolizable aportada
+    me_por_100g = energy["ME"]
+    me_total_kcal = (me_por_100g / 100.0) * gramos_input
+
+    # MER del animal desde sesión (calculado en Tab 1)
+    mer_animal = st.session_state.get("energia_actual", None)
+
+    col_e1, col_e2, col_e3 = st.columns(3)
+    with col_e1:
+        st.metric(
+            label="⚡ Energía Aportada",
+            value=f"{me_total_kcal:.1f} kcal",
+            help="Energía Metabolizable total aportada por los gramos ingresados.",
+        )
+    with col_e2:
+        mer_display = f"{mer_animal:.1f} kcal/día" if mer_animal else "No calculado"
+        st.metric(
+            label="🎯 MER del Animal",
+            value=mer_display,
+            help="Requerimiento Energético Metabolizable diario del animal (calculado en Tab 1).",
+        )
+    with col_e3:
+        if mer_animal and mer_animal > 0:
+            cobertura_pct = (me_total_kcal / mer_animal) * 100.0
+            delta_color = "normal" if cobertura_pct <= ENERGY_COVERAGE_THRESHOLD else "inverse"
+            st.metric(
+                label="📊 Cobertura Energética",
+                value=f"{cobertura_pct:.1f}%",
+                delta=f"{cobertura_pct - 100:.1f}% vs requerimiento",
+                delta_color=delta_color,
+                help="Porcentaje del requerimiento energético diario cubierto.",
+            )
+        else:
+            st.metric(label="📊 Cobertura Energética", value="—", help="Completa el perfil en Tab 1 para obtener el MER.")
+
+    # Tabla de desglose
+    if mer_animal and mer_animal > 0:
+        cobertura_pct = (me_total_kcal / mer_animal) * 100.0
+        aporte_df = pd.DataFrame([
+            {"Concepto": "ME del alimento (kcal/100g)", "Valor": f"{me_por_100g:.2f} kcal/100g"},
+            {"Concepto": f"Gramos diarios de {food_name}", "Valor": f"{gramos_input:.1f} g/día"},
+            {"Concepto": "Energía Metabolizable aportada", "Valor": f"{me_total_kcal:.2f} kcal/día"},
+            {"Concepto": "MER del animal", "Valor": f"{mer_animal:.2f} kcal/día"},
+            {"Concepto": "Cobertura energética", "Valor": f"{cobertura_pct:.1f}%"},
+        ])
+        st.dataframe(aporte_df.set_index("Concepto"), use_container_width=True)
+
+        # Gráfico de barras Requerimiento vs Aporte
+        fig_aporte = go.Figure()
+        fig_aporte.add_trace(go.Bar(
+            name="MER Requerida",
+            x=["Energía (kcal/día)"],
+            y=[mer_animal],
+            marker_color="#8E9AAF",
+            text=[f"{mer_animal:.1f} kcal"],
+            textposition="outside",
+        ))
+        fig_aporte.add_trace(go.Bar(
+            name="Aporte del Alimento",
+            x=["Energía (kcal/día)"],
+            y=[me_total_kcal],
+            marker_color="#2176FF" if cobertura_pct <= ENERGY_COVERAGE_THRESHOLD else "#FFB703",
+            text=[f"{me_total_kcal:.1f} kcal"],
+            textposition="outside",
+        ))
+        fig_aporte.update_layout(
+            barmode="group",
+            title=dict(
+                text="Requerimiento Energético vs Aporte del Alimento",
+                font=dict(size=15, family="Montserrat, sans-serif"),
+            ),
+            yaxis_title="kcal / día",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            height=360,
+            margin=dict(t=60, b=40, l=60, r=40),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+        )
+        st.plotly_chart(fig_aporte, use_container_width=True)
+    else:
+        st.info("💡 Completa el perfil de la mascota en la pestaña **Perfil de Mascota** para obtener el MER y calcular la cobertura energética.")
 
     # ---- Comparación con todos los alimentos ----
     st.subheader("📈 Comparación entre Alimentos")
