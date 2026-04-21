@@ -225,7 +225,7 @@ def show_food_analysis():
 
     food_names = get_food_names()
     food_name = st.selectbox(
-        "🔍 Selecciona un alimento",
+        "🔍 Selecciona un alimento balanceado",
         food_names,
         key="analysis_food_selector",
     )
@@ -301,12 +301,13 @@ def show_food_analysis():
             {"Paso": "1. Energía Bruta (GE)", "Valor": f"{energy['GE']:.2f} kcal/100g"},
             {"Paso": "2. Digestibilidad (%DE)", "Valor": f"{energy['DE_pct']:.2f} %"},
             {"Paso": "3. Energía Digestible (DE)", "Valor": f"{energy['DE']:.2f} kcal/100g"},
-            {"Paso": "4. Energía Metabolizable (ME)", "Valor": f"{energy['ME']:.2f} kcal/100g"},
+            {"Paso": "4. Energía Metabolizable (ME)", "Valor": f"{energy['ME']:.2f} kcal/100g  ({energy['ME'] * 10:.0f} kcal/kg)"},
         ]
     )
     st.dataframe(energy_df.set_index("Paso"), use_container_width=True)
 
     # ME destacada
+    me_por_kg = energy["ME"] * 10.0
     st.markdown(
         f"""
         <div style="background:linear-gradient(90deg,#2176ff,#52B788);
@@ -314,6 +315,8 @@ def show_food_analysis():
             <span style="color:#fff;font-size:1.1rem;">Energía Metabolizable</span><br>
             <span style="color:#fff;font-size:2.5rem;font-weight:700;">{energy['ME']:.1f}</span>
             <span style="color:#ffffffcc;font-size:1.2rem;"> kcal / 100 g</span>
+            &nbsp;&nbsp;
+            <span style="color:#ffffffcc;font-size:1rem;">({me_por_kg:.0f} kcal / kg)</span>
         </div>
         """,
         unsafe_allow_html=True,

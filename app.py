@@ -832,122 +832,10 @@ with tabs[2]:
     else:
         st.info("Selecciona al menos un alimento para ver su composición nutricional.")
 
-    # === 4. Dieta (proporciones y gramos) ===
-    st.subheader("Composición de la dieta formulada")
-    result = st.session_state.get("last_result", None)
-    diet = result.get("diet", {}) if result is not None else {}
-    dosis_g = st.session_state.get("dosis_dieta_g_formulacion", 1000)
-    ingredientes_df_filtrado = st.session_state.get("ingredients_df", None)
-    ingredientes_sel = list(ingredientes_df_filtrado["Ingrediente"]) if ingredientes_df_filtrado is not None and "Ingrediente" in ingredientes_df_filtrado.columns else []
-
-    comp_data = []
-    for ing in ingredientes_sel:
-        porcentaje = diet.get(ing, 0.0)
-        gramos = (porcentaje / 100.0) * dosis_g
-        comp_data.append({
-            "Ingrediente": ing,
-            "% Inclusión": fmt2(porcentaje),
-            "Gramos en dosis": fmt2(gramos)
-        })
-    res_df = pd.DataFrame(comp_data)
-
-    if not res_df.empty and "Ingrediente" in res_df.columns:
-        html_table = "<table class='styled-table'><tr><th>Ingrediente</th><th>% Inclusión</th><th>Gramos en dosis</th></tr>"
-        for _, row in res_df.iterrows():
-            html_table += (
-                f"<tr>"
-                f"<td>{row['Ingrediente']}</td>"
-                f"<td>{row['% Inclusión']}</td>"
-                f"<td>{row['Gramos en dosis']}</td>"
-                f"</tr>"
-            )
-        html_table += "</table>"
-        st.markdown(html_table, unsafe_allow_html=True)
-    else:
-        st.info("No hay ingredientes para mostrar la dieta. Por favor, formula primero la dieta y selecciona ingredientes.")
-
-    # === 5. Precio de la dieta ===
-    st.subheader("Precio de la dieta")
-    if result is not None:
-        total_cost = result.get("cost", 0)
-        precio_kg = total_cost / 100 if total_cost else 0
-        precio_dosis = (precio_kg * dosis_g) / 1000
-    else:
-        total_cost = 0
-        precio_kg = 0
-        precio_dosis = 0
-    st.markdown(f"- <b>Costo total (por 100 kg):</b> ${fmt2(total_cost)}", unsafe_allow_html=True)
-    st.markdown(f"- <b>Precio por kg:</b> ${fmt2(precio_kg)}", unsafe_allow_html=True)
-    st.markdown(f"- <b>Precio por dosis diaria:</b> ${fmt2(precio_dosis)}", unsafe_allow_html=True)
-
-    # === 6. Tabla Unificada de Requerimientos y Composición Obtenida ===
-    st.subheader("Requerimientos y composición obtenida (por kg dieta)")
-    user_requirements = st.session_state.get("nutrientes_requeridos", {})
-    nutritional_values = result.get("nutritional_values", {}) if result is not None else {}
-
-    unified_list = []
-    for nut, req in user_requirements.items():
-        min_v = fmt2(req.get("min", ""))
-        max_v = fmt2(req.get("max", ""))
-        obtenido = nutritional_values.get(nut, None)
-        unidad = req.get("unit", "")
-        cumple = "✔️"
-        try:
-            min_f = float(req.get("min", 0))
-            obt_f = float(obtenido) if obtenido not in [None, "", "None"] else 0
-            if obt_f < min_f:
-                cumple = "❌"
-        except Exception:
-            cumple = "❌"
-        try:
-            max_f = float(req.get("max", 0))
-            obt_f = float(obtenido) if obtenido not in [None, "", "None"] else 0
-            if max_f > 0 and obt_f > max_f:
-                cumple = "❌"
-        except Exception:
-            pass
-        unified_list.append({
-            "Nutriente": nut,
-            "Mín": min_v,
-            "Máx": max_v,
-            "Obtenido": fmt2(obtenido) if obtenido is not None and obtenido != "" else "",
-            "Unidad por kg de dieta": unidad,
-            "Cumple": cumple
-        })
-    unified_df = pd.DataFrame(unified_list)
-
-    if not unified_df.empty and "Nutriente" in unified_df.columns:
-        html_table = "<table class='styled-table'><tr><th>Nutriente</th><th>Mín</th><th>Máx</th><th>Obtenido</th><th>Unidad por kg de dieta</th><th>Cumple</th></tr>"
-        for _, row in unified_df.iterrows():
-            min_cell = f"<td class='min-cell'>{row['Mín']}</td>"
-            max_cell = f"<td>{row['Máx']}</td>"
-            obt_cell = f"<td class='obt-cell'>{row['Obtenido']}</td>"
-            cumple_cell = f"<td>{row['Cumple']}</td>"
-            html_table += (
-                f"<tr>"
-                f"<td>{row['Nutriente']}</td>"
-                f"{min_cell}"
-                f"{max_cell}"
-                f"{obt_cell}"
-                f"<td>{row['Unidad por kg de dieta']}</td>"
-                f"{cumple_cell}"
-                f"</tr>"
-            )
-        html_table += "</table>"
-        st.markdown(html_table, unsafe_allow_html=True)
-    else:
-        st.info("No hay requerimientos ni composición nutricional para mostrar.")
-
-    # === 7. Exportar a Excel ===
+    # === 4. Exportar a Excel ===
     st.subheader("Exportar resumen a Excel")
 
     perfil_df = pd.DataFrame([mascota])
-    dieta_df = res_df
-    precio_df = pd.DataFrame([{
-        "Costo total (100kg)": fmt2(total_cost),
-        "Precio por kg": fmt2(precio_kg),
-        "Precio por dosis": fmt2(precio_dosis)
-    }])
     energia_df_export = pd.DataFrame([{
         "RER (kcal/día)": round(energia_basal, 2) if energia_basal else "-",
         "MER (kcal/día)": round(mer_animal, 2) if mer_animal else "-",
@@ -960,9 +848,6 @@ with tabs[2]:
         energia_df_export.to_excel(writer, sheet_name='Requerimiento Energético', index=False)
         if selected_alimentos and not comp_alimentos_df.empty:
             comp_alimentos_df.reset_index().to_excel(writer, sheet_name='Alimentos Balanceados', index=False)
-        dieta_df.to_excel(writer, sheet_name='Dieta', index=False)
-        precio_df.to_excel(writer, sheet_name='Precio', index=False)
-        unified_df.to_excel(writer, sheet_name='Requerimientos y Composición', index=False)
     excel_data = output.getvalue()
 
     st.download_button(
