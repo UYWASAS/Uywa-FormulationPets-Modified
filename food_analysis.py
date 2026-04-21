@@ -68,15 +68,22 @@ def plot_macronutrients(food_name, food_data):
         barmode="stack",
         title=dict(
             text=f"Composición Proximal — {food_name}",
-            font=dict(size=16, family="Montserrat, sans-serif"),
+            font=dict(size=15, family="Montserrat, sans-serif"),
         ),
         yaxis_title="% (Base tal como está)",
         xaxis_title="",
-        legend=dict(orientation="h", yanchor="bottom", y=-0.4, xanchor="center", x=0.5),
+        legend=dict(
+            orientation="v",
+            yanchor="middle",
+            y=0.5,
+            xanchor="left",
+            x=1.02,
+            font=dict(size=11),
+        ),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
-        height=420,
-        margin=dict(t=60, b=120, l=40, r=40),
+        height=480,
+        margin=dict(t=60, b=40, l=40, r=190),
     )
     return fig
 
@@ -235,9 +242,6 @@ def show_food_analysis():
         st.error("No se encontraron datos para el alimento seleccionado.")
         return
 
-    energy = calculate_energy(food_data)
-    ENA = calculate_ena(food_data)
-
     # ---- Encabezado del alimento ----
     st.markdown(
         f"""
@@ -256,28 +260,66 @@ def show_food_analysis():
         unsafe_allow_html=True,
     )
 
-    # ---- Tabla de composición proximal ----
+    # ---- Tabla de composición proximal (editable) ----
     st.subheader("📊 Composición Proximal")
-    comp_df = pd.DataFrame(
-        [
-            {"Componente": "Proteína Bruta (PB)", "Valor (%)": food_data["PB"], "Base": "Tal como está"},
-            {"Componente": "Grasa / Extracto Etéreo (EE)", "Valor (%)": food_data["EE"], "Base": "Tal como está"},
-            {"Componente": "Cenizas (Ash)", "Valor (%)": food_data["Ash"], "Base": "Tal como está"},
-            {"Componente": "Humedad", "Valor (%)": food_data["Humidity"], "Base": "Tal como está"},
-            {"Componente": "Fibra Cruda (FC)", "Valor (%)": food_data["FC"], "Base": "Tal como está"},
-            {"Componente": "Carbohidratos / ENA (por diferencia)", "Valor (%)": ENA, "Base": "Tal como está"},
-            {"Componente": "Materia Seca (MS)", "Valor (%)": energy["MS"], "Base": "Calculado"},
-            {"Componente": "FC en base MS", "Valor (%)": energy["FC_MS"], "Base": "Materia Seca"},
-        ]
+    st.markdown(
+        "<small style='color:#5a6e8c;'>Edita los valores para recalcular automáticamente la energía y los gráficos.</small>",
+        unsafe_allow_html=True,
     )
-    st.dataframe(comp_df.set_index("Componente"), use_container_width=True)
+
+    # Column mapping: display name → food_data key
+    EDIT_COLS = {
+        "PB (%)": "PB",
+        "EE (%)": "EE",
+        "Cenizas (%)": "Ash",
+        "Humedad (%)": "Humidity",
+        "FC (%)": "FC",
+    }
+
+    edit_df = pd.DataFrame(
+        [{col: food_data[key] for col, key in EDIT_COLS.items()}]
+    )
+
+    # Sanitize food_name for use as a widget key
+    safe_key = "".join(c if c.isalnum() else "_" for c in food_name)
+
+    edited = st.data_editor(
+        edit_df,
+        use_container_width=True,
+        hide_index=True,
+        key=f"comp_editor_{safe_key}",
+        column_config={
+            "PB (%)": st.column_config.NumberColumn("PB (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
+            "EE (%)": st.column_config.NumberColumn("EE (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
+            "Cenizas (%)": st.column_config.NumberColumn("Cenizas (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
+            "Humedad (%)": st.column_config.NumberColumn("Humedad (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
+            "FC (%)": st.column_config.NumberColumn("FC (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
+        },
+    )
+
+    # Build updated food_data from edited values using the same mapping
+    edited_food_data = dict(food_data)
+    edited_food_data.update({key: float(edited[col].iloc[0]) for col, key in EDIT_COLS.items()})
+
+    # Recalculate derived values from edited data
+    ENA = calculate_ena(edited_food_data)
+    energy = calculate_energy(edited_food_data)
+
+    # Show calculated (read-only) values
+    col_c1, col_c2, col_c3 = st.columns(3)
+    with col_c1:
+        st.metric("🌾 ENA / Carbohidratos (%)", f"{ENA:.1f} %", help="Calculado por diferencia: 100 - PB - EE - Ash - Humidity - FC")
+    with col_c2:
+        st.metric("🔬 Materia Seca (MS) (%)", f"{energy['MS']:.1f} %", help="MS = 100 - Humedad")
+    with col_c3:
+        st.metric("📐 FC en base MS (%)", f"{energy['FC_MS']:.2f} %", help="FC_MS = (FC / MS) × 100")
 
     # ---- Gráficos de composición ----
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(plot_macronutrients(food_name, food_data), use_container_width=True)
+        st.plotly_chart(plot_macronutrients(food_name, edited_food_data), use_container_width=True)
     with col2:
-        st.plotly_chart(plot_macronutrients_pie(food_name, food_data), use_container_width=True)
+        st.plotly_chart(plot_macronutrients_pie(food_name, edited_food_data), use_container_width=True)
 
     # ---- Sección de energía metabolizable ----
     st.subheader("⚡ Cálculo de Energía Metabolizable (Modelo NRC)")
@@ -296,16 +338,6 @@ def show_food_analysis():
         unsafe_allow_html=True,
     )
 
-    energy_df = pd.DataFrame(
-        [
-            {"Paso": "1. Energía Bruta (GE)", "Valor": f"{energy['GE']:.2f} kcal/100g"},
-            {"Paso": "2. Digestibilidad (%DE)", "Valor": f"{energy['DE_pct']:.2f} %"},
-            {"Paso": "3. Energía Digestible (DE)", "Valor": f"{energy['DE']:.2f} kcal/100g"},
-            {"Paso": "4. Energía Metabolizable (ME)", "Valor": f"{energy['ME']:.2f} kcal/100g  ({energy['ME'] * 10:.0f} kcal/kg)"},
-        ]
-    )
-    st.dataframe(energy_df.set_index("Paso"), use_container_width=True)
-
     # ME destacada
     me_por_kg = energy["ME"] * 10.0
     st.markdown(
@@ -321,8 +353,6 @@ def show_food_analysis():
         """,
         unsafe_allow_html=True,
     )
-
-    st.plotly_chart(plot_energy_funnel(food_name, energy), use_container_width=True)
 
     # ---- Cálculo de Aporte Energético ----
     st.subheader("🧮 Cálculo de Aporte Energético")
