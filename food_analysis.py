@@ -74,16 +74,16 @@ def plot_macronutrients(food_name, food_data):
         xaxis_title="",
         legend=dict(
             orientation="v",
-            yanchor="middle",
-            y=0.5,
+            yanchor="top",
+            y=0.99,
             xanchor="left",
             x=1.02,
             font=dict(size=11),
         ),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
-        height=480,
-        margin=dict(t=60, b=40, l=40, r=190),
+        height=500,
+        margin=dict(t=60, b=150, l=40, r=190),
     )
     return fig
 
