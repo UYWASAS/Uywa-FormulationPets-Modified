@@ -25,6 +25,9 @@ LABELS = {
     "ENA": "Carbohidratos (ENA)",
 }
 
+# Umbral de cobertura energética para alertas visuales (%)
+ENERGY_COVERAGE_THRESHOLD = 110
+
 
 def plot_macronutrients(food_name, food_data):
     """
@@ -359,7 +362,7 @@ def show_food_analysis():
     with col_e3:
         if mer_animal and mer_animal > 0:
             cobertura_pct = (me_total_kcal / mer_animal) * 100.0
-            delta_color = "normal" if cobertura_pct <= 110 else "inverse"
+            delta_color = "normal" if cobertura_pct <= ENERGY_COVERAGE_THRESHOLD else "inverse"
             st.metric(
                 label="📊 Cobertura Energética",
                 value=f"{cobertura_pct:.1f}%",
@@ -396,7 +399,7 @@ def show_food_analysis():
             name="Aporte del Alimento",
             x=["Energía (kcal/día)"],
             y=[me_total_kcal],
-            marker_color="#2176FF" if cobertura_pct <= 110 else "#FFB703",
+            marker_color="#2176FF" if cobertura_pct <= ENERGY_COVERAGE_THRESHOLD else "#FFB703",
             text=[f"{me_total_kcal:.1f} kcal"],
             textposition="outside",
         ))

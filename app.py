@@ -34,6 +34,15 @@ from energy_requirements import calcular_mer, calcular_rer
 from energy_requirements import descripcion_condiciones
 from auth import USERS_DB
 from food_analysis import show_food_analysis
+from food_database import FOODS, calculate_energy as calc_energy_food, calculate_ena as calc_ena_food, get_food_names as get_food_names_db
+from PIL import Image
+import io
+
+# Umbral de cobertura energética para alertas visuales (%)
+ENERGY_COVERAGE_THRESHOLD = 110
+
+# Paleta de colores para gráficos radar
+RADAR_CHART_COLORS = ["#2176FF", "#FFB703", "#52B788", "#F4845F", "#8E9AAF", "#E74C3C"]
 
 # ======================== DEFINICIÓN GLOBAL DE FACTORES ========================
 FACTORES_CONDICION = {
@@ -627,9 +636,6 @@ with tabs[2]:
     cols = st.columns([1, 3])
 
     with cols[0]:
-        from PIL import Image
-        import io
-
         # --- FOTO UX MEJORADO ---
         foto_guardada = st.session_state.get("mascota_foto", None)
         nueva_foto = None
@@ -688,7 +694,7 @@ with tabs[2]:
     energia_basal = calcular_rer(mascota.get("peso", 0)) if mascota.get("peso") else None
 
     if mer_animal is not None and energia_basal is not None:
-        factor_cond = round(mer_animal / energia_basal, 2) if energia_basal > 0 else "-"
+        factor_cond = round(mer_animal / energia_basal, 2) if energia_basal and energia_basal > 1e-6 else "-"
         col_r1, col_r2, col_r3 = st.columns(3)
         with col_r1:
             st.metric("🔋 RER (Energía en Reposo)", f"{energia_basal:.1f} kcal/día")
@@ -701,10 +707,8 @@ with tabs[2]:
 
     # === 3. Composición de Alimentos Seleccionados (food_database) ===
     st.subheader("🥗 Composición Nutricional de Alimentos Balanceados")
-    from food_database import FOODS, calculate_energy as calc_energy_food, calculate_ena as calc_ena_food, get_food_names
-    from food_analysis import COLORS as FOOD_COLORS, LABELS as FOOD_LABELS
 
-    food_names_all = get_food_names()
+    food_names_all = get_food_names_db()
     selected_alimentos = st.multiselect(
         "Selecciona alimentos para ver su composición",
         food_names_all,
@@ -737,7 +741,7 @@ with tabs[2]:
         st.markdown("**Gráfico Radar: Macronutrientes por Alimento**")
         radar_fig = go.Figure()
         radar_cats = ["PB (%)", "EE (%)", "Cenizas (%)", "FC (%)", "ENA (%)"]
-        colors_radar = ["#2176FF", "#FFB703", "#52B788", "#F4845F", "#8E9AAF", "#E74C3C"]
+        colors_radar = RADAR_CHART_COLORS
         for idx, fname in enumerate(selected_alimentos):
             fdata = FOODS.get(fname, {})
             if fdata:
@@ -807,7 +811,7 @@ with tabs[2]:
                 name="Aporte Total Alimentos",
                 x=["Energía (kcal/día)"],
                 y=[aporte_total_kcal],
-                marker_color="#2176FF" if cobertura_total <= 110 else "#FFB703",
+                marker_color="#2176FF" if cobertura_total <= ENERGY_COVERAGE_THRESHOLD else "#FFB703",
                 text=[f"{aporte_total_kcal:.1f} kcal ({cobertura_total:.0f}%)"],
                 textposition="outside",
             ))
@@ -936,8 +940,6 @@ with tabs[2]:
 
     # === 7. Exportar a Excel ===
     st.subheader("Exportar resumen a Excel")
-
-    import io
 
     perfil_df = pd.DataFrame([mascota])
     dieta_df = res_df
