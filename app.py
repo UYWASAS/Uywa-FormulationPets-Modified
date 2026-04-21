@@ -116,7 +116,7 @@ user = st.session_state.get("user", None)
 
 # Configuración de la barra lateral
 with st.sidebar:
-    st.image("assets/logo.png", use_column_width=True)
+    st.image("asstes/logo.png", use_column_width=True)
     st.markdown(
         """
         <div style="text-align:center;margin-bottom:20px;">
