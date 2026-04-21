@@ -86,9 +86,9 @@ def calculate_energy(food_data):
     Ecuaciones:
         1. GE  (kcal/100g) = (5.7 × PB) + (9.4 × EE) + [4.1 × (ENA + FC)]
         2. FC_MS (% en materia seca) = FC / MS × 100
-        3. %DE  = 91.2 − (1.43 × FC_MS)
-        4. DE   (kcal/100g) = GE × (%DE / 100)
-        5. ME   (kcal/100g) = DE − (1.04 × PB)
+        3. %DE  = 91.2 - (1.43 x FC_MS)
+        4. DE   (kcal/100g) = GE x (%DE / 100)
+        5. ME   (kcal/100g) = DE - (1.04 x PB)
 
     Retorna:
         dict con GE, ENA, MS, FC_MS, DE_pct, DE y ME.

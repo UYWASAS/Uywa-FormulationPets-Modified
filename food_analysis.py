@@ -285,9 +285,9 @@ def show_food_analysis():
                     padding:12px 18px;margin-bottom:16px;font-size:0.93rem;">
             <b>Ecuaciones utilizadas (NRC):</b><br>
             1. <code>GE = (5.7×PB) + (9.4×EE) + [4.1×(ENA+FC)]</code><br>
-            2. <code>%DE = 91.2 − (1.43×FC_MS)</code><br>
-            3. <code>DE = GE × (%DE/100)</code><br>
-            4. <code>ME = DE − (1.04×PB)</code>
+            2. <code>%DE = 91.2 - (1.43*FC_MS)</code><br>
+            3. <code>DE = GE * (%DE/100)</code><br>
+            4. <code>ME = DE - (1.04*PB)</code>
         </div>
         """,
         unsafe_allow_html=True,
