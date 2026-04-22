@@ -419,9 +419,9 @@ with tabs[0]:
         with ef_col1:
             nombre_mascota = st.text_input("Nombre de la mascota", value=mascota.get("nombre", "Mascota"), key="nombre_mascota")
             especie = st.selectbox("Especie", ["perro", "gato"], index=["perro", "gato"].index(mascota.get("especie", "perro").lower()), key="especie_mascota")
-            edad = st.number_input("Edad en años", min_value=0.1, max_value=20.0, value=float(mascota.get("edad", 1.0)), step=0.1, key="edad_mascota")
+            edad = st.number_input("Edad en años", min_value=0.1, max_value=20.0, value=max(0.1, safe_float(mascota.get("edad", 1.0), 1.0)), step=0.1, key="edad_mascota")
         with ef_col2:
-            peso = st.number_input("Peso en kg", min_value=0.1, max_value=200.0, value=float(mascota.get("peso", 12.0)), step=0.1, key="peso_mascota")
+            peso = st.number_input("Peso en kg", min_value=0.1, max_value=200.0, value=max(0.1, safe_float(mascota.get("peso", 12.0), 12.0)), step=0.1, key="peso_mascota")
             etapa = st.selectbox("Etapa de vida", ["adulto", "cachorro"], index=["adulto", "cachorro"].index(mascota.get("etapa", "adulto").lower()), key="etapa_mascota")
 
         # Condición fisiológica/productiva dependiente de la etapa
@@ -442,7 +442,8 @@ with tabs[0]:
 
         # Condición Corporal (BCS)
         bcs_disabled = st.session_state.get("etapa_mascota", mascota.get("etapa", "adulto")) == "cachorro" and condicion == "Destete a 4 meses"
-        bcs = st.slider("Condición Corporal (BCS 1–9)", min_value=1, max_value=9, value=int(mascota.get("bcs", 5)), key="bcs_mascota", disabled=bcs_disabled)
+        bcs_val = max(1, min(9, int(safe_float(mascota.get("bcs", 5), 5))))
+        bcs = st.slider("Condición Corporal (BCS 1–9)", min_value=1, max_value=9, value=bcs_val, key="bcs_mascota", disabled=bcs_disabled)
 
         # Foto de la mascota en el formulario
         foto_upload = st.file_uploader("Foto de la mascota (opcional)", type=["png", "jpg", "jpeg"], key="foto_mascota_upload")
@@ -454,6 +455,7 @@ with tabs[0]:
                 st.image(st.session_state["mascota_foto_bytes"], width=100, caption="Vista previa")
             if st.button("🗑️ Eliminar foto", key="del_foto_perfil"):
                 del st.session_state["mascota_foto_bytes"]
+                st.rerun()
 
         if st.button("💾 Guardar perfil de mascota", key="guardar_perfil_btn"):
             mascota_actualizada = {
@@ -476,8 +478,8 @@ with tabs[0]:
     especie = st.session_state.get("especie_mascota", mascota.get("especie", "perro"))
     etapa = st.session_state.get("etapa_mascota", mascota.get("etapa", "adulto"))
     condicion = st.session_state.get("condicion_mascota", mascota.get("condicion", "Castrado"))
-    bcs = int(st.session_state.get("bcs_mascota", mascota.get("bcs", 5)))
-    peso = float(st.session_state.get("peso_mascota", mascota.get("peso", 12.0)))
+    bcs = max(1, min(9, int(safe_float(st.session_state.get("bcs_mascota", mascota.get("bcs", 5)), 5))))
+    peso = max(0.1, safe_float(st.session_state.get("peso_mascota", mascota.get("peso", 12.0)), 12.0))
     bcs_disabled = etapa == "cachorro" and condicion == "Destete a 4 meses"
 
     # --- Cálculo del RER y MER (necesario antes del layout) ---
@@ -539,7 +541,7 @@ with tabs[0]:
 
     with col_right:
         # --- Datos Vitales en cards (2 por fila) ---
-        edad_display = float(st.session_state.get("edad_mascota", mascota.get("edad", 1.0)))
+        edad_display = max(0.0, safe_float(st.session_state.get("edad_mascota", mascota.get("edad", 1.0)), 1.0))
         bcs_pct = int((bcs / 9) * 100)
         bcs_color = "#52b788" if 4 <= bcs <= 6 else ("#f4845f" if bcs > 6 else "#fbbf24")
 
