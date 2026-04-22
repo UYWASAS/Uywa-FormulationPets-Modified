@@ -130,6 +130,61 @@ def calculate_energy(food_data):
     }
 
 
+def calculate_energy_breakdown(food_data):
+    """
+    Calcula el aporte energético de cada macronutriente según la fórmula NRC.
+
+    Desglose basado en GE = (5.7 × PB) + (9.4 × EE) + [4.1 × (ENA + FC)]:
+        - kcal_pb  : energía aportada por la Proteína Bruta
+        - kcal_ee  : energía aportada por la Grasa (EE)
+        - kcal_cho : energía aportada por Carbohidratos + Fibra (ENA + FC)
+
+    Los porcentajes se calculan respecto a la GE total.
+    Los valores de ME proporcionales escalan los % al valor real de ME.
+
+    Parámetros:
+        food_data (dict): Diccionario con las claves PB, EE, Ash, Humidity y FC
+            (valores porcentuales en base tal como está / as-fed).
+
+    Retorna:
+        dict con kcal y porcentajes por nutriente, más GE, DE y ME totales.
+    """
+    PB = food_data["PB"]
+    EE = food_data["EE"]
+    FC = food_data["FC"]
+    ENA = calculate_ena(food_data)
+
+    kcal_pb = 5.7 * PB
+    kcal_ee = 9.4 * EE
+    kcal_cho = 4.1 * (ENA + FC)
+    GE = kcal_pb + kcal_ee + kcal_cho
+
+    if GE > 0:
+        pct_pb = (kcal_pb / GE) * 100.0
+        pct_ee = (kcal_ee / GE) * 100.0
+        pct_cho = (kcal_cho / GE) * 100.0
+    else:
+        pct_pb = pct_ee = pct_cho = 0.0
+
+    energy = calculate_energy(food_data)
+    ME = energy["ME"]
+
+    return {
+        "kcal_pb": round(kcal_pb, 2),
+        "kcal_ee": round(kcal_ee, 2),
+        "kcal_cho": round(kcal_cho, 2),
+        "pct_pb": round(pct_pb, 1),
+        "pct_ee": round(pct_ee, 1),
+        "pct_cho": round(pct_cho, 1),
+        "me_pb": round(ME * pct_pb / 100.0, 2),
+        "me_ee": round(ME * pct_ee / 100.0, 2),
+        "me_cho": round(ME * pct_cho / 100.0, 2),
+        "GE": energy["GE"],
+        "DE": energy["DE"],
+        "ME": ME,
+    }
+
+
 def get_food_names():
     """Devuelve la lista de nombres de alimentos disponibles."""
     return list(FOODS.keys())
