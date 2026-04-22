@@ -4,7 +4,7 @@ import plotly.express as px
 import pandas as pd
 import streamlit as st
 
-from food_database import FOODS, calculate_energy, calculate_ena, get_food_names, get_food_data
+from food_database import FOODS, calculate_energy, calculate_ena, calculate_energy_breakdown, get_food_names, get_food_data
 
 # ---- Paleta de colores corporativa ----
 COLORS = {
@@ -218,6 +218,162 @@ def plot_comparison_bar(selected_foods):
         margin=dict(t=60, b=130, l=60, r=40),
     )
     return fig
+
+
+def plot_energy_breakdown_stacked(selected_foods):
+    """
+    Gráfico de barras apiladas mostrando ME de cada alimento desglosada
+    por contribución porcentual de Proteína, Grasa y Carbohidratos.
+
+    Parámetros:
+        selected_foods (list[str]): Lista de nombres de alimentos a comparar.
+
+    Retorna:
+        plotly.graph_objects.Figure
+    """
+    emoji_names = []
+    me_pb_vals = []
+    me_ee_vals = []
+    me_cho_vals = []
+
+    for fname in selected_foods:
+        fdata = get_food_data(fname)
+        if fdata:
+            bd = calculate_energy_breakdown(fdata)
+            emoji_names.append(f"{fdata.get('emoji', '')} {fname}")
+            me_pb_vals.append(bd["me_pb"])
+            me_ee_vals.append(bd["me_ee"])
+            me_cho_vals.append(bd["me_cho"])
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name="Proteína (PB)",
+        x=emoji_names,
+        y=me_pb_vals,
+        marker_color="#2176FF",
+        hovertemplate="<b>Proteína</b><br>%{y:.1f} kcal/100g<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        name="Grasa (EE)",
+        x=emoji_names,
+        y=me_ee_vals,
+        marker_color="#FFB703",
+        hovertemplate="<b>Grasa</b><br>%{y:.1f} kcal/100g<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        name="Carbohidratos + Fibra",
+        x=emoji_names,
+        y=me_cho_vals,
+        marker_color="#52B788",
+        hovertemplate="<b>Carbohidratos + Fibra</b><br>%{y:.1f} kcal/100g<extra></extra>",
+    ))
+
+    fig.update_layout(
+        barmode="stack",
+        title=dict(
+            text="Origen de la Energía Metabolizable por Alimento",
+            font=dict(size=16, family="Montserrat, sans-serif"),
+        ),
+        yaxis_title="Energía Metabolizable (kcal / 100 g)",
+        xaxis_tickangle=-25,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.45, xanchor="center", x=0.5),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        height=480,
+        margin=dict(t=60, b=140, l=60, r=40),
+    )
+    return fig
+
+
+def show_energy_breakdown_cards(selected_foods):
+    """
+    Renderiza cards individuales por alimento con el desglose energético porcentual.
+
+    Parámetros:
+        selected_foods (list[str]): Lista de nombres de alimentos a mostrar.
+    """
+    cols = st.columns(min(len(selected_foods), 3))
+    for idx, fname in enumerate(selected_foods):
+        fdata = get_food_data(fname)
+        if not fdata:
+            continue
+        bd = calculate_energy_breakdown(fdata)
+        col = cols[idx % 3]
+        with col:
+            st.markdown(
+                f"""
+                <div style="background:#fff;border:1px solid #e0e7ef;border-radius:12px;
+                            padding:16px;margin-bottom:12px;box-shadow:0 2px 8px #0001;">
+                    <div style="font-size:1.6rem;text-align:center;">{fdata.get('emoji','')}</div>
+                    <div style="font-weight:700;font-size:0.95rem;text-align:center;
+                                color:#2C3E50;margin:6px 0 10px 0;line-height:1.3;">{fname}</div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;
+                                margin-bottom:5px;">
+                        <span style="color:#2176FF;font-weight:600;font-size:0.85rem;">🥩 Proteína</span>
+                        <span style="background:#2176FF22;color:#2176FF;border-radius:8px;
+                                     padding:2px 8px;font-size:0.88rem;font-weight:700;">
+                            {bd['pct_pb']:.1f}%
+                        </span>
+                    </div>
+                    <div style="background:#2176FF;height:6px;border-radius:4px;
+                                width:{bd['pct_pb']:.1f}%;margin-bottom:8px;"></div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;
+                                margin-bottom:5px;">
+                        <span style="color:#FFB703;font-weight:600;font-size:0.85rem;">🧈 Grasa</span>
+                        <span style="background:#FFB70322;color:#b57d00;border-radius:8px;
+                                     padding:2px 8px;font-size:0.88rem;font-weight:700;">
+                            {bd['pct_ee']:.1f}%
+                        </span>
+                    </div>
+                    <div style="background:#FFB703;height:6px;border-radius:4px;
+                                width:{bd['pct_ee']:.1f}%;margin-bottom:8px;"></div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;
+                                margin-bottom:5px;">
+                        <span style="color:#52B788;font-weight:600;font-size:0.85rem;">🌾 Carbohidratos</span>
+                        <span style="background:#52B78822;color:#1b7a53;border-radius:8px;
+                                     padding:2px 8px;font-size:0.88rem;font-weight:700;">
+                            {bd['pct_cho']:.1f}%
+                        </span>
+                    </div>
+                    <div style="background:#52B788;height:6px;border-radius:4px;
+                                width:{bd['pct_cho']:.1f}%;margin-bottom:10px;"></div>
+                    <div style="font-size:0.8rem;color:#5a6e8c;text-align:center;margin-top:6px;">
+                        ME: <b>{bd['ME']:.1f} kcal/100g</b>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def build_energy_breakdown_table(selected_foods):
+    """
+    Construye un DataFrame con el desglose energético de cada alimento seleccionado.
+
+    Columnas: Alimento | Proteína (kcal) | Grasa (kcal) | Carbohidratos (kcal) | GE | DE | ME
+
+    Parámetros:
+        selected_foods (list[str]): Lista de nombres de alimentos.
+
+    Retorna:
+        pandas.DataFrame
+    """
+    rows = []
+    for fname in selected_foods:
+        fdata = get_food_data(fname)
+        if not fdata:
+            continue
+        bd = calculate_energy_breakdown(fdata)
+        rows.append({
+            "Alimento": f"{fdata.get('emoji','')} {fname}",
+            "Proteína (kcal/100g)": bd["kcal_pb"],
+            "Grasa (kcal/100g)": bd["kcal_ee"],
+            "Carbohidratos (kcal/100g)": bd["kcal_cho"],
+            "GE Total (kcal/100g)": bd["GE"],
+            "DE Total (kcal/100g)": bd["DE"],
+            "ME Total (kcal/100g)": bd["ME"],
+        })
+    return pd.DataFrame(rows)
 
 
 def show_food_analysis():
@@ -453,16 +609,34 @@ def show_food_analysis():
     else:
         st.info("💡 Completa el perfil de la mascota en la pestaña **Perfil de Mascota** para obtener el MER y calcular la cobertura energética.")
 
-    # ---- Comparación con todos los alimentos ----
-    st.subheader("📈 Comparación entre Alimentos")
-    st.markdown("Compara la energía bruta, digestible y metabolizable entre los alimentos disponibles.")
+    # ---- Comparación de Origen Energético entre Alimentos ----
+    st.subheader("📈 Comparación del Origen de la Energía entre Alimentos")
+    st.markdown(
+        "Selecciona los alimentos que deseas comparar para visualizar **de qué nutriente proviene la energía** "
+        "(Proteína, Grasa y Carbohidratos) según la fórmula NRC."
+    )
     selected_for_comparison = st.multiselect(
-        "Selecciona alimentos para comparar",
+        "Selecciona alimentos para comparar (hasta 6)",
         food_names,
-        default=food_names,
+        default=[food_name] if food_name else [],
         key="analysis_comparison_selector",
+        max_selections=6,
     )
     if selected_for_comparison:
-        st.plotly_chart(plot_comparison_bar(selected_for_comparison), use_container_width=True)
+        # Gráfico de barras apiladas
+        st.plotly_chart(plot_energy_breakdown_stacked(selected_for_comparison), use_container_width=True)
+
+        # Cards individuales
+        st.markdown("#### 🃏 Desglose por Alimento")
+        show_energy_breakdown_cards(selected_for_comparison)
+
+        # Tabla de desglose energético
+        st.markdown("#### 📋 Tabla de Desglose Energético")
+        breakdown_df = build_energy_breakdown_table(selected_for_comparison)
+        if not breakdown_df.empty:
+            st.dataframe(
+                breakdown_df.set_index("Alimento"),
+                use_container_width=True,
+            )
     else:
-        st.info("Selecciona al menos un alimento para ver la comparación.")
+        st.info("Selecciona al menos un alimento para ver la comparación energética.")
