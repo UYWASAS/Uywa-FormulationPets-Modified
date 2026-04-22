@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import random
+import base64
 
 # Función para generar colores únicos
 def get_color_map(items):
@@ -248,75 +249,238 @@ from nutrient_tools import transformar_referencia_a_porcentaje
 with tabs[0]:
     st.subheader("Perfil y Requerimientos Energéticos de la Mascota")
 
-    # Mostrar formulario para editar el perfil de la mascota
-    mascota = profile.get("mascota", {})
-    nombre_mascota = st.text_input("Nombre de la mascota", value=mascota.get("nombre", "Mascota"), key="nombre_mascota")
-    especie = st.selectbox("Especie", ["perro", "gato"], index=["perro", "gato"].index(mascota.get("especie", "perro").lower()), key="especie_mascota")
-    edad = st.number_input("Edad en años", min_value=0.1, max_value=20.0, value=mascota.get("edad", 1.0), step=0.1, key="edad_mascota")
-    peso = st.number_input("Peso en kg", min_value=0.1, max_value=200.0, value=mascota.get("peso", 12.0), step=0.1, key="peso_mascota")
-    etapa = st.selectbox("Etapa de vida", ["adulto", "cachorro"], index=["adulto", "cachorro"].index(mascota.get("etapa", "adulto").lower()), key="etapa_mascota")
-
-    # Condición fisiológica/productiva dependiente de la etapa
-    if etapa == "adulto":
-        opciones_condicion = ["Castrado", "Entero", "Gestación (Primera mitad)", "Gestación (Segunda mitad)", "Lactancia"]
-    elif etapa == "cachorro":
-        opciones_condicion = ["Destete a 4 meses", "5 meses hasta adulto"]
-
-    condicion_predeterminada = mascota.get("condicion", "Castrado")
-    if condicion_predeterminada not in opciones_condicion:
-        condicion_predeterminada = opciones_condicion[0]
-    condicion = st.selectbox(
-        "Condición fisiológica/productiva",
-        opciones_condicion,
-        index=opciones_condicion.index(condicion_predeterminada),
-        key="condicion_mascota"
-    )
-
-    # Condición Corporal (BCS) con bloqueo según condición seleccionada
-    bcs_disabled = etapa == "cachorro" and condicion == "Destete a 4 meses"
-    bcs = st.slider(
-        "Condición Corporal (BCS)",
-        min_value=1,
-        max_value=9,
-        value=mascota.get("bcs", 5),
-        key="bcs_mascota",
-        disabled=bcs_disabled
-    )
-
-    # Botón para guardar perfil
-    if st.button("Guardar perfil de mascota"):
-        mascota_actualizada = {
-            "nombre": st.session_state["nombre_mascota"],
-            "especie": st.session_state["especie_mascota"].lower(),
-            "edad": st.session_state["edad_mascota"],
-            "peso": st.session_state["peso_mascota"],
-            "etapa": st.session_state["etapa_mascota"].lower(),
-            "condicion": condicion,
-            "bcs": st.session_state.get("bcs_mascota", 5),
-        }
-        profile["mascota"] = mascota_actualizada
-        update_and_save_profile(profile)
-        st.success("Perfil actualizado correctamente.")
-
-    # Visualización del perfil actualizado
+    # --- CSS personalizado para el perfil de mascota ---
     st.markdown(
-        f"""
-        <div style="background-color: #eef4fc; padding: 20px; border-radius: 12px; box-shadow: 0px 2px 8px #d6e0f0;">
-            <p style="font-size: 20px; margin: 0; text-align: center;"><b>{mascota.get('nombre', 'Mascota')}</b></p>
-            <ul style="margin: 0; padding: 0; list-style: none; font-size: 16px; color: #2c3e50;">
-                <li>🐾 <b>Especie:</b> {mascota.get('especie', 'No definido')}</li>
-                <li>⏳ <b>Edad:</b> {fmt2(mascota.get('edad', 0.0))} años</li>
-                <li>⚖️ <b>Peso:</b> {fmt2(mascota.get('peso', 12.0))} kg</li>
-                <li>🌟 <b>Etapa:</b> {mascota.get('etapa', 'adulto')}</li>
-                <li>📏 <b>Condición Corporal (BCS):</b> {mascota.get('bcs', 5)}</li>
-                <li>🛠️ <b>Condición Fisiológica/Productiva:</b> {mascota.get('condicion', 'No definida')}</li>
-            </ul>
-        </div>
+        """
+        <style>
+        /* Contenedor principal del perfil en 2 columnas */
+        .profile-left {
+            text-align: center;
+            padding: 20px 10px;
+        }
+        /* Foto circular de la mascota */
+        .pet-photo-circle {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 4px solid #2176ff;
+            box-shadow: 0 4px 16px rgba(33,118,255,0.25);
+            margin: 0 auto 12px auto;
+            display: block;
+        }
+        /* Placeholder circular cuando no hay foto */
+        .pet-photo-placeholder {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2176ff 0%, #52b788 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 56px;
+            margin: 0 auto 12px auto;
+            box-shadow: 0 4px 16px rgba(33,118,255,0.25);
+        }
+        /* Nombre de la mascota */
+        .pet-name {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1a202c;
+            margin: 6px 0 2px 0;
+        }
+        /* Badge de etapa de vida */
+        .stage-badge {
+            display: inline-block;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            margin: 6px 0;
+        }
+        .stage-badge.cachorro {
+            background-color: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fcd34d;
+        }
+        .stage-badge.adulto {
+            background-color: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+        /* Tarjetas de datos vitales */
+        .vital-card {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 14px 18px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+            border-left: 4px solid #2176ff;
+        }
+        .vital-card .card-label {
+            font-size: 12px;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+        .vital-card .card-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1a202c;
+        }
+        .vital-card .card-icon {
+            font-size: 22px;
+            float: right;
+            margin-top: -2px;
+        }
+        /* BCS indicator */
+        .bcs-bar-container {
+            background: #e2e8f0;
+            border-radius: 6px;
+            height: 8px;
+            margin-top: 6px;
+            overflow: hidden;
+        }
+        .bcs-bar-fill {
+            height: 8px;
+            border-radius: 6px;
+            background: linear-gradient(90deg, #52b788, #2176ff);
+        }
+        /* Tarjetas de energía */
+        .energy-card {
+            background: linear-gradient(135deg, #2176ff 0%, #1254d1 100%);
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 14px rgba(33,118,255,0.3);
+            color: #fff;
+        }
+        .energy-card .card-label {
+            font-size: 12px;
+            color: rgba(255,255,255,0.8);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+        .energy-card .card-value {
+            font-size: 22px;
+            font-weight: 700;
+            color: #fff;
+        }
+        .energy-card.green {
+            background: linear-gradient(135deg, #52b788 0%, #2d9e72 100%);
+            box-shadow: 0 4px 14px rgba(82,183,136,0.3);
+        }
+        .energy-card.orange {
+            background: linear-gradient(135deg, #f4845f 0%, #d4603a 100%);
+            box-shadow: 0 4px 14px rgba(244,132,95,0.3);
+        }
+        /* Sección separadora */
+        .section-divider {
+            border: none;
+            border-top: 2px solid #e2e8f0;
+            margin: 20px 0 16px 0;
+        }
+        /* Tablas de energía y nutrientes */
+        .energy-table, .nutrients-table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+            font-size: 15px;
+            text-align: center;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .energy-table th, .nutrients-table th {
+            background-color: #4A5568;
+            color: #fff;
+            padding: 10px;
+            font-weight: bold;
+        }
+        .energy-table td, .nutrients-table td {
+            padding: 10px;
+        }
+        .energy-table tr:nth-child(even), .nutrients-table tr:nth-child(even) {
+            background-color: #edf2f7;
+        }
+        .energy-table tr:nth-child(odd), .nutrients-table tr:nth-child(odd) {
+            background-color: #ffffff;
+        }
+        </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # Cálculo del RER y MER
+    # --- Formulario de edición en expander ---
+    mascota = profile.get("mascota", {})
+    with st.expander("✏️ Editar Perfil de la Mascota", expanded=False):
+        ef_col1, ef_col2 = st.columns(2)
+        with ef_col1:
+            nombre_mascota = st.text_input("Nombre de la mascota", value=mascota.get("nombre", "Mascota"), key="nombre_mascota")
+            especie = st.selectbox("Especie", ["perro", "gato"], index=["perro", "gato"].index(mascota.get("especie", "perro").lower()), key="especie_mascota")
+            edad = st.number_input("Edad en años", min_value=0.1, max_value=20.0, value=float(mascota.get("edad", 1.0)), step=0.1, key="edad_mascota")
+        with ef_col2:
+            peso = st.number_input("Peso en kg", min_value=0.1, max_value=200.0, value=float(mascota.get("peso", 12.0)), step=0.1, key="peso_mascota")
+            etapa = st.selectbox("Etapa de vida", ["adulto", "cachorro"], index=["adulto", "cachorro"].index(mascota.get("etapa", "adulto").lower()), key="etapa_mascota")
+
+        # Condición fisiológica/productiva dependiente de la etapa
+        if st.session_state.get("etapa_mascota", mascota.get("etapa", "adulto")) == "adulto":
+            opciones_condicion = ["Castrado", "Entero", "Gestación (Primera mitad)", "Gestación (Segunda mitad)", "Lactancia"]
+        else:
+            opciones_condicion = ["Destete a 4 meses", "5 meses hasta adulto"]
+
+        condicion_predeterminada = mascota.get("condicion", "Castrado")
+        if condicion_predeterminada not in opciones_condicion:
+            condicion_predeterminada = opciones_condicion[0]
+        condicion = st.selectbox(
+            "Condición fisiológica/productiva",
+            opciones_condicion,
+            index=opciones_condicion.index(condicion_predeterminada),
+            key="condicion_mascota",
+        )
+
+        # Condición Corporal (BCS)
+        bcs_disabled = st.session_state.get("etapa_mascota", mascota.get("etapa", "adulto")) == "cachorro" and condicion == "Destete a 4 meses"
+        bcs = st.slider("Condición Corporal (BCS 1–9)", min_value=1, max_value=9, value=int(mascota.get("bcs", 5)), key="bcs_mascota", disabled=bcs_disabled)
+
+        # Foto de la mascota en el formulario
+        foto_upload = st.file_uploader("Foto de la mascota (opcional)", type=["png", "jpg", "jpeg"], key="foto_mascota_upload")
+        if foto_upload is not None:
+            st.session_state["mascota_foto_bytes"] = foto_upload.getvalue()
+        if st.session_state.get("mascota_foto_bytes"):
+            col_prev, _ = st.columns([1, 3])
+            with col_prev:
+                st.image(st.session_state["mascota_foto_bytes"], width=100, caption="Vista previa")
+            if st.button("🗑️ Eliminar foto", key="del_foto_perfil"):
+                del st.session_state["mascota_foto_bytes"]
+
+        if st.button("💾 Guardar perfil de mascota", key="guardar_perfil_btn"):
+            mascota_actualizada = {
+                "nombre": st.session_state["nombre_mascota"],
+                "especie": st.session_state["especie_mascota"].lower(),
+                "edad": st.session_state["edad_mascota"],
+                "peso": st.session_state["peso_mascota"],
+                "etapa": st.session_state["etapa_mascota"].lower(),
+                "condicion": condicion,
+                "bcs": st.session_state.get("bcs_mascota", 5),
+            }
+            profile["mascota"] = mascota_actualizada
+            update_and_save_profile(profile)
+            st.success("✅ Perfil actualizado correctamente.")
+
+    # Refrescar datos del perfil tras posible guardado
+    mascota = profile.get("mascota", {})
+
+    # Leer valores actuales (del estado de sesión si fueron modificados, o del perfil guardado)
+    especie = st.session_state.get("especie_mascota", mascota.get("especie", "perro"))
+    etapa = st.session_state.get("etapa_mascota", mascota.get("etapa", "adulto"))
+    condicion = st.session_state.get("condicion_mascota", mascota.get("condicion", "Castrado"))
+    bcs = int(st.session_state.get("bcs_mascota", mascota.get("bcs", 5)))
+    peso = float(st.session_state.get("peso_mascota", mascota.get("peso", 12.0)))
+    bcs_disabled = etapa == "cachorro" and condicion == "Destete a 4 meses"
+
+    # --- Cálculo del RER y MER (necesario antes del layout) ---
     try:
         energia_basal_actual = calcular_rer(peso)
         factores_etapa = FACTORES_CONDICION.get(especie, {}).get(etapa, {}).get(condicion, None)
@@ -325,15 +489,157 @@ with tabs[0]:
         factor_fisiologico = factores_etapa if isinstance(factores_etapa, (int, float)) else factores_etapa[0]
         mer_actual = energia_basal_actual * factor_fisiologico
 
-        # Ajuste por BCS
         factores_bcs = {6: 0.9, 7: 0.8, 8: 0.7, 9: 0.6, 4: 1.1, 3: 1.2, 2: 1.3, 1: 1.4}
         peso_objetivo = peso * factores_bcs.get(bcs, 1.0) if bcs != 5 and not bcs_disabled else "-"
         energia_basal_objetivo = calcular_rer(peso_objetivo) if bcs != 5 and not bcs_disabled else "-"
         mer_final = energia_basal_objetivo * factor_fisiologico if bcs != 5 and not bcs_disabled else mer_actual
+        factor_condicion_val = round(mer_final / energia_basal_actual, 2) if energia_basal_actual > 1e-6 else "-"
 
-        # Guardar MER ajustada en el estado de sesión
         st.session_state["energia_actual"] = mer_final
 
+    except Exception as e:
+        st.error(f"Error en cálculos energéticos: {str(e)}")
+        st.stop()
+
+    # ===================== LAYOUT DE 2 COLUMNAS =====================
+    col_left, col_right = st.columns([3, 7])
+
+    with col_left:
+        # Icono de especie
+        especie_icon = "🐕" if especie == "perro" else "🐈"
+        nombre_display = mascota.get("nombre", "Mascota")
+
+        # Foto circular o placeholder
+        foto_bytes = st.session_state.get("mascota_foto_bytes")
+        if foto_bytes:
+            foto_b64 = base64.b64encode(foto_bytes).decode("utf-8")
+            st.markdown(
+                f"""
+                <div class="profile-left">
+                    <img src="data:image/png;base64,{foto_b64}" class="pet-photo-circle" alt="foto mascota"/>
+                    <div class="pet-name">{nombre_display}</div>
+                    <div style="font-size:32px; margin:4px 0;">{especie_icon}</div>
+                    <span class="stage-badge {etapa}">{etapa.capitalize()}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"""
+                <div class="profile-left">
+                    <div class="pet-photo-placeholder">{especie_icon}</div>
+                    <div class="pet-name">{nombre_display}</div>
+                    <div style="font-size:13px; color:#718096; margin:2px 0;">{especie.capitalize()}</div>
+                    <span class="stage-badge {etapa}">{etapa.capitalize()}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    with col_right:
+        # --- Datos Vitales en cards (2 por fila) ---
+        edad_display = float(st.session_state.get("edad_mascota", mascota.get("edad", 1.0)))
+        bcs_pct = int((bcs / 9) * 100)
+        bcs_color = "#52b788" if 4 <= bcs <= 6 else ("#f4845f" if bcs > 6 else "#fbbf24")
+
+        vc1, vc2 = st.columns(2)
+        with vc1:
+            st.markdown(
+                f"""
+                <div class="vital-card">
+                    <span class="card-icon">🎂</span>
+                    <div class="card-label">Edad</div>
+                    <div class="card-value">{fmt2(edad_display)} años</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with vc2:
+            st.markdown(
+                f"""
+                <div class="vital-card" style="border-left-color:#52b788;">
+                    <span class="card-icon">⚖️</span>
+                    <div class="card-label">Peso</div>
+                    <div class="card-value">{fmt2(peso)} kg</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        vc3, vc4 = st.columns(2)
+        with vc3:
+            st.markdown(
+                f"""
+                <div class="vital-card" style="border-left-color:{bcs_color};">
+                    <span class="card-icon">📏</span>
+                    <div class="card-label">Condición Corporal (BCS)</div>
+                    <div class="card-value">{bcs} / 9</div>
+                    <div class="bcs-bar-container">
+                        <div class="bcs-bar-fill" style="width:{bcs_pct}%; background:{bcs_color};"></div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with vc4:
+            st.markdown(
+                f"""
+                <div class="vital-card" style="border-left-color:#8e9aaf;">
+                    <span class="card-icon">🛠️</span>
+                    <div class="card-label">Condición Fisiológica</div>
+                    <div class="card-value" style="font-size:15px;">{condicion}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        # --- Sección de Requerimientos Energéticos ---
+        st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
+        st.markdown("**🔋 Requerimientos Energéticos**")
+
+        ec1, ec2, ec3 = st.columns(3)
+        with ec1:
+            st.markdown(
+                f"""
+                <div class="energy-card">
+                    <div class="card-label">RER (Reposo)</div>
+                    <div class="card-value">{fmt2(energia_basal_actual)}</div>
+                    <div style="font-size:11px; opacity:0.85;">kcal/día</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with ec2:
+            st.markdown(
+                f"""
+                <div class="energy-card green">
+                    <div class="card-label">MER (Diario)</div>
+                    <div class="card-value">{fmt2(mer_final)}</div>
+                    <div style="font-size:11px; opacity:0.85;">kcal/día</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with ec3:
+            st.markdown(
+                f"""
+                <div class="energy-card orange">
+                    <div class="card-label">Factor Condición</div>
+                    <div class="card-value">{factor_condicion_val}</div>
+                    <div style="font-size:11px; opacity:0.85;">MER / RER</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        # Botón de edición
+        st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
+        if st.button("✏️ Editar perfil", key="btn_editar_perfil_shortcut"):
+            st.info("Usa el panel **✏️ Editar Perfil de la Mascota** en la parte superior para modificar los datos.")
+
+    # ===================== TABLAS DETALLADAS (ANCHO COMPLETO) =====================
+    try:
         # Tabla de energías calculadas
         energia_data = [
             {"Tipo": "RER Actual", "Valor": f"{fmt2(energia_basal_actual)} kcal/día", "Descripción": "Energía necesaria en reposo para mantener funciones básicas como respirar y digerir."},
@@ -343,52 +649,16 @@ with tabs[0]:
             {"Tipo": "MER Ajustada Final", "Valor": f"{fmt2(mer_final)} kcal/día", "Descripción": "Energía total diaria necesaria tras ajustes por BCS y condición."},
         ]
 
-        # Estilo de la tabla HTML de energías
-        st.markdown(
-            """
-            <style>
-            .energy-table {
-                border-collapse: collapse;
-                width: 100%;
-                margin-top: 20px;
-                font-size: 15px;
-                text-align: center;
-                border-radius: 8px;
-                overflow: hidden;
-            }
-            .energy-table th {
-                background-color: #4A5568; /* Tono ajustado */
-                color: #fff;
-                padding: 10px;
-                font-weight: bold;
-            }
-            .energy-table td {
-                padding: 10px;
-            }
-            .energy-table tr:nth-child(even) {
-                background-color: #edf2f7;
-            }
-            .energy-table tr:nth-child(odd) {
-                background-color: #ffffff;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
-        # Generar la tabla HTML para energías
+        st.markdown("<br>", unsafe_allow_html=True)
         html_table = "<table class='energy-table'><thead><tr><th>Tipo de Energía</th><th>Valor</th><th>Descripción</th></tr></thead><tbody>"
         for entry in energia_data:
             html_table += f"<tr><td>{entry['Tipo']}</td><td>{entry['Valor']}</td><td>{entry['Descripción']}</td></tr>"
         html_table += "</tbody></table>"
         st.markdown(html_table, unsafe_allow_html=True)
 
-        # Cálculo y tabla de nutrientes ajustados
+        # Tabla de nutrientes ajustados
         nutrientes_ref = NUTRIENTES_REFERENCIA_PERRO if especie == "perro" else NUTRIENTES_REFERENCIA_GATO
         nutrientes_especie_etapa = nutrientes_ref.get(etapa, {})
-
-        # Cantidad de dieta (kg) necesaria para cubrir el MER del animal.
-        # 4000 kcal/kg MS es la densidad energética de referencia usada en nutrient_reference.py
         kg_dieta_necesaria = mer_final / 4000.0
 
         requerimientos_ajustados = []
@@ -397,20 +667,16 @@ with tabs[0]:
             min_valor = valores.get("min", None)
             max_valor = valores.get("max", None)
 
-            # Convertir según el tipo de unidad al valor diario absoluto
             if unidad == "%":
-                # % MS → gramos por día: (% / 100) × kg_dieta × 1000
                 min_ajustado = (min_valor / 100.0) * kg_dieta_necesaria * 1000 if min_valor is not None else None
                 max_ajustado = (max_valor / 100.0) * kg_dieta_necesaria * 1000 if max_valor is not None else None
                 nueva_unidad = "g"
             elif unidad in ["mg/kg", "UI/kg", "IU/kg", "µg/kg"]:
-                # valor/kg MS → valor por día: valor × kg_dieta
                 unidad_base = unidad.replace("/kg", "")
                 min_ajustado = min_valor * kg_dieta_necesaria if min_valor is not None else None
                 max_ajustado = max_valor * kg_dieta_necesaria if max_valor is not None else None
                 nueva_unidad = unidad_base
             else:
-                # Mantener tal cual (ratios u otras unidades sin conversión)
                 min_ajustado = min_valor
                 max_ajustado = max_valor
                 nueva_unidad = unidad if unidad else "-"
@@ -419,47 +685,12 @@ with tabs[0]:
                 "Nutriente": nutriente,
                 "Min Ajustado": fmt2(min_ajustado) if min_ajustado is not None else "-",
                 "Max Ajustado": fmt2(max_ajustado) if max_ajustado is not None else "-",
-                "Unidad": nueva_unidad
+                "Unidad": nueva_unidad,
             })
 
-        # Persistencia de la tabla en el estado de sesión
         df_nutrientes_ajustados = pd.DataFrame(requerimientos_ajustados)
         st.session_state["tabla_requerimientos_base"] = df_nutrientes_ajustados.copy()
 
-        # Estilo para la tabla de nutrientes ajustados
-        st.markdown(
-            """
-            <style>
-            .nutrients-table {
-                border-collapse: collapse;
-                width: 100%;
-                margin-top: 20px;
-                font-size: 15px;
-                text-align: center;
-                border-radius: 8px;
-                overflow: hidden;
-            }
-            .nutrients-table th {
-                background-color: #4A5568; /* Tono ajustado */
-                color: #fff;
-                padding: 10px;
-                font-weight: bold;
-            }
-            .nutrients-table td {
-                padding: 10px;
-            }
-            .nutrients-table tr:nth-child(even) {
-                background-color: #edf2f7;
-            }
-            .nutrients-table tr:nth-child(odd) {
-                background-color: #ffffff;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
-        # Generar la tabla HTML para nutrientes ajustados
         html_nutrientes = "<table class='nutrients-table'><thead><tr><th>Nutriente</th><th>Min Ajustado</th><th>Max Ajustado</th><th>Unidad</th></tr></thead><tbody>"
         for req in requerimientos_ajustados:
             html_nutrientes += f"<tr><td>{req['Nutriente']}</td><td>{req['Min Ajustado']}</td><td>{req['Max Ajustado']}</td><td>{req['Unidad']}</td></tr>"
