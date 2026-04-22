@@ -96,18 +96,35 @@ def show_mascota_form(profile, on_update_callback=None):
                 if "foto_mascota_bytes" in st.session_state:
                     st.session_state["foto_mascota_name"] = nombre
 
-    # Resumen visual en forma de tarjeta
+    # Resumen visual en forma de tarjeta mejorada
     mascota = profile.get("mascota", {})
+    etapa_val = mascota.get('etapa', 'adulto')
+    badge_color = "#fef3c7" if etapa_val == "cachorro" else "#d1fae5"
+    badge_text = "#92400e" if etapa_val == "cachorro" else "#065f46"
+    badge_border = "#fcd34d" if etapa_val == "cachorro" else "#6ee7b7"
+    especie_icon = "🐕" if mascota.get('especie', 'perro') == "perro" else "🐈"
     st.markdown(
         f"""
-        <div style="border-radius:12px;background:#e3ecf7;padding:18px;margin-bottom:15px;box-shadow:0 2px 10px #adbadb33;">
-            <h3 style="margin-top:0;">{mascota.get('nombre', '(Sin nombre)')}</h3>
-            <p><b>🐾 Especie:</b> {mascota.get('especie', '---')}</p>
-            <p><b>🎂 Edad:</b> {mascota.get('edad', '---')} años</p>
-            <p><b>⚖️ Peso:</b> {mascota.get('peso', '---')} kg</p>
-            <p><b>🍼 Etapa:</b> {mascota.get('etapa', '---')}</p>
-            <p><b>📏 Condición Corporal (BCS):</b> {mascota.get('bcs', '---')}</p>
-            <p><b>🛠️ Condición Fisiológica/Productiva:</b> {mascota.get('condicion', '---')}</p>
+        <div style="border-radius:14px;background:linear-gradient(135deg,#eef4fc 0%,#f0f9ff 100%);
+                    padding:20px;margin-top:16px;margin-bottom:8px;
+                    box-shadow:0 3px 14px rgba(33,118,255,0.10);
+                    border:1px solid #d4e4fc;">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                <span style="font-size:36px;">{especie_icon}</span>
+                <div>
+                    <div style="font-size:20px;font-weight:700;color:#1a202c;">{mascota.get('nombre', '(Sin nombre)')}</div>
+                    <span style="display:inline-block;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:600;
+                                 background:{badge_color};color:{badge_text};border:1px solid {badge_border};">
+                        {etapa_val.capitalize()}
+                    </span>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:15px;color:#2d3748;">
+                <div>🎂 <b>Edad:</b> {mascota.get('edad', '---')} años</div>
+                <div>⚖️ <b>Peso:</b> {mascota.get('peso', '---')} kg</div>
+                <div>📏 <b>BCS:</b> {mascota.get('bcs', '---')} / 9</div>
+                <div>🛠️ <b>Condición:</b> {mascota.get('condicion', '---')}</div>
+            </div>
         </div>
         """, unsafe_allow_html=True
     )
