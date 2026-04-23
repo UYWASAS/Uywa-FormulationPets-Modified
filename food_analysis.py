@@ -481,15 +481,18 @@ def show_food_analysis():
     with col1:
         st.metric("🌾 Fibra Cruda (FC)", f"{edited_food_data['FC']:.1f} %")
     with col2:
-        st.metric("🌽 Extracto No Nitrogenado (ENA)", f"{ENA:.1f} %")
+        st.metric("🌽 Extracto No Nitrogenado (ENA)", f"{ENA:.1f} %",
+                  help="Calculado por diferencia: 100 − PB − EE − Ash − Humedad − FC")
 
     st.markdown("#### 📈 Valores Derivados")
 
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("🔬 Materia Seca (MS)", f"{energy['MS']:.1f} %")
+        st.metric("🔬 Materia Seca (MS)", f"{energy['MS']:.1f} %",
+                  help="MS = 100 − Humedad")
     with col2:
-        st.metric("📐 FC en base MS", f"{energy['FC_MS']:.2f} %")
+        st.metric("📐 FC en base MS", f"{energy['FC_MS']:.2f} %",
+                  help="FC_MS = (FC / MS) × 100")
 
     # ---- Gráficos de composición ----
     col1, col2 = st.columns(2)
