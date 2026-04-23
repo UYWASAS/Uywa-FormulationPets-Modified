@@ -2,8 +2,141 @@
 # Alimentos balanceados comerciales ecuatorianos — valores extruidos típicos
 # compatibles con estándares FEDIAF/NRC/AAFCO
 # Unidades: % tal como está (as-fed basis)
+#
+# Los datos se cargan dinámicamente desde comercial_diets_ecuador.csv.
+# Si el archivo no está disponible se usa el diccionario de respaldo definido abajo.
 
-FOODS = {
+import csv
+import os
+
+# Columnas numéricas requeridas en el CSV
+_REQUIRED_NUMERIC_COLUMNS = {"PB(%)", "EE(%)", "Ash(%)", "Humedad(%)", "FC(%)"}
+
+# Columnas mínimas que deben estar presentes en el CSV
+_REQUIRED_COLUMNS = {"ID", "Nombre", "Descripcion", "Categoria", "Emoji"} | _REQUIRED_NUMERIC_COLUMNS
+
+# Ruta por defecto del CSV (mismo directorio que este módulo)
+_DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "comercial_diets_ecuador.csv")
+
+# Caché en memoria: se llena al importar el módulo
+_foods_cache: dict = {}
+
+
+def validate_csv(csv_path: str) -> list[str]:
+    """
+    Valida la estructura del archivo CSV de dietas comerciales.
+
+    Parámetros:
+        csv_path (str): Ruta al archivo CSV.
+
+    Retorna:
+        list[str]: Lista de mensajes de error. Vacía si el CSV es válido.
+    """
+    errors: list[str] = []
+
+    if not os.path.isfile(csv_path):
+        errors.append(f"Archivo no encontrado: {csv_path}")
+        return errors
+
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            if reader.fieldnames is None:
+                errors.append("El archivo CSV está vacío o no tiene encabezados.")
+                return errors
+
+            headers = set(reader.fieldnames)
+            missing = _REQUIRED_COLUMNS - headers
+            if missing:
+                errors.append(f"Columnas faltantes en el CSV: {', '.join(sorted(missing))}")
+                return errors
+
+            for row_num, row in enumerate(reader, start=2):
+                nombre = row.get("Nombre", "").strip()
+                if not nombre:
+                    errors.append(f"Fila {row_num}: columna 'Nombre' vacía.")
+                    continue
+                for col in _REQUIRED_NUMERIC_COLUMNS:
+                    val = row.get(col, "").strip()
+                    if val == "":
+                        errors.append(f"Fila {row_num} ({nombre}): columna '{col}' vacía.")
+                        continue
+                    try:
+                        float(val)
+                    except ValueError:
+                        errors.append(f"Fila {row_num} ({nombre}): '{col}' = '{val}' no es numérico.")
+    except Exception as exc:
+        errors.append(f"Error al leer el CSV: {exc}")
+
+    return errors
+
+
+def load_diets_from_csv(csv_path: str) -> dict:
+    """
+    Carga las dietas comerciales desde un archivo CSV y devuelve un diccionario
+    compatible con el formato interno de FOODS.
+
+    Cada clave es el nombre comercial del alimento (columna 'Nombre') y su valor
+    es un diccionario con las claves: PB, EE, Ash, Humidity, FC, description,
+    category, emoji, y campos adicionales de mercado (brand, species, life_stage,
+    price_usd_kg, distributor, presentations, availability, benefits, id).
+
+    Si el CSV contiene valores precalculados de ENA, GE, DE y ME estos son
+    ignorados; los valores se recalculan en tiempo de ejecución mediante
+    calculate_ena() y calculate_energy() para garantizar consistencia.
+
+    Parámetros:
+        csv_path (str): Ruta al archivo CSV.
+
+    Retorna:
+        dict: Diccionario de alimentos en formato FOODS, o {} si hubo errores.
+    """
+    errors = validate_csv(csv_path)
+    if errors:
+        return {}
+
+    foods: dict = {}
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                nombre = row.get("Nombre", "").strip()
+                if not nombre:
+                    continue
+                try:
+                    entry: dict = {
+                        "PB": float(row["PB(%)"]),
+                        "EE": float(row["EE(%)"]),
+                        "Ash": float(row["Ash(%)"]),
+                        "Humidity": float(row["Humedad(%)"]),
+                        "FC": float(row["FC(%)"]),
+                        "description": row.get("Descripcion", "").strip(),
+                        "category": row.get("Categoria", "").strip(),
+                        "emoji": row.get("Emoji", "").strip(),
+                        # Campos adicionales de mercado
+                        "id": row.get("ID", "").strip(),
+                        "brand": row.get("Marca", "").strip(),
+                        "species": row.get("Especie", "").strip(),
+                        "life_stage": row.get("Etapa_de_Vida", "").strip(),
+                        "price_usd_kg": (lambda v: float(v) if v else None)(row.get("Precio_USD_kg", "").strip()),
+                        "distributor": row.get("Distribuidor", "").strip(),
+                        "presentations": row.get("Presentaciones", "").strip(),
+                        "availability": row.get("Disponibilidad", "").strip(),
+                        "benefits": row.get("Beneficios", "").strip(),
+                    }
+                    foods[nombre] = entry
+                except (ValueError, KeyError):
+                    continue
+    except Exception:
+        return {}
+
+    return foods
+
+
+# ---------------------------------------------------------------------------
+# Datos de respaldo (hardcoded) — usados cuando el CSV no está disponible
+# ---------------------------------------------------------------------------
+_FOODS_FALLBACK = {
     "Pro Plan Puppy (Cachorro Perro)": {
         "PB": 30.0,
         "EE": 13.0,
@@ -65,6 +198,12 @@ FOODS = {
         "emoji": "👴",
     },
 }
+
+# ---------------------------------------------------------------------------
+# Inicialización: intentar cargar desde CSV; usar fallback si falla
+# ---------------------------------------------------------------------------
+_foods_cache = load_diets_from_csv(_DEFAULT_CSV_PATH)
+FOODS: dict = _foods_cache if _foods_cache else _FOODS_FALLBACK
 
 
 def calculate_ena(food_data):
