@@ -462,54 +462,37 @@ def show_food_analysis():
     ENA = calculate_ena(edited_food_data)
     energy = calculate_energy(edited_food_data)
 
-    # Show calculated (read-only) values as prominent styled cards
-    st.markdown("### 📈 Valores Calculados")
-    st.markdown(
-        f"""
-        <div style="display:flex;flex-direction:column;gap:16px;margin-top:8px;margin-bottom:16px;">
-            <div style="background:linear-gradient(135deg,#eef6ff,#ddeeff);
-                        border:1px solid #b3d4f5;border-radius:12px;padding:20px 28px;
-                        box-shadow:0 2px 8px rgba(33,118,255,0.10);">
-                <div style="font-size:1rem;color:#5a6e8c;font-weight:600;margin-bottom:4px;">
-                    🌾 ENA / Carbohidratos
-                </div>
-                <div style="font-size:2rem;font-weight:700;color:#2176FF;">
-                    {ENA:.1f} %
-                </div>
-                <div style="font-size:0.78rem;color:#8a9bbf;margin-top:2px;">
-                    Calculado por diferencia: 100 − PB − EE − Ash − Humedad − FC
-                </div>
-            </div>
-            <div style="background:linear-gradient(135deg,#edfff4,#d5f5e3);
-                        border:1px solid #a9dfc0;border-radius:12px;padding:20px 28px;
-                        box-shadow:0 2px 8px rgba(39,174,96,0.10);">
-                <div style="font-size:1rem;color:#5a6e8c;font-weight:600;margin-bottom:4px;">
-                    🔬 Materia Seca (MS)
-                </div>
-                <div style="font-size:2rem;font-weight:700;color:#27ae60;">
-                    {energy['MS']:.1f} %
-                </div>
-                <div style="font-size:0.78rem;color:#8a9bbf;margin-top:2px;">
-                    MS = 100 − Humedad
-                </div>
-            </div>
-            <div style="background:linear-gradient(135deg,#fff8ee,#fdebd0);
-                        border:1px solid #f5cba7;border-radius:12px;padding:20px 28px;
-                        box-shadow:0 2px 8px rgba(255,183,3,0.10);">
-                <div style="font-size:1rem;color:#5a6e8c;font-weight:600;margin-bottom:4px;">
-                    📐 FC en base Materia Seca
-                </div>
-                <div style="font-size:2rem;font-weight:700;color:#e67e22;">
-                    {energy['FC_MS']:.2f} %
-                </div>
-                <div style="font-size:0.78rem;color:#8a9bbf;margin-top:2px;">
-                    FC_MS = (FC / MS) × 100
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # Show all nutrients as large metric cards
+    st.markdown("#### 📊 Composición del Alimento (Base tal como está)")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("🥩 Proteína Bruta (PB)", f"{edited_food_data['PB']:.1f} %")
+    with col2:
+        st.metric("🧈 Extracto Etéreo (EE)", f"{edited_food_data['EE']:.1f} %")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("⚫ Cenizas", f"{edited_food_data['Ash']:.1f} %")
+    with col2:
+        st.metric("💧 Humedad", f"{edited_food_data['Humidity']:.1f} %")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("🌾 Fibra Cruda (FC)", f"{edited_food_data['FC']:.1f} %")
+    with col2:
+        st.metric("🌽 Extracto No Nitrogenado (ENA)", f"{ENA:.1f} %",
+                  help="Calculado por diferencia: 100 − PB − EE − Ash − Humedad − FC")
+
+    st.markdown("#### 📈 Valores Derivados")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("🔬 Materia Seca (MS)", f"{energy['MS']:.1f} %",
+                  help="MS = 100 − Humedad")
+    with col2:
+        st.metric("📐 FC en base MS", f"{energy['FC_MS']:.2f} %",
+                  help="FC_MS = (FC / MS) × 100")
 
     # ---- Gráficos de composición ----
     col1, col2 = st.columns(2)
