@@ -432,14 +432,16 @@ def show_food_analysis():
         "FC (%)": "FC",
     }
 
-    edit_df = pd.DataFrame(
-        [{col: food_data[key] for col, key in EDIT_COLS.items()}]
-    )
-
     # Sanitize food_name for use as a widget key
     safe_key = "".join(c if c.isalnum() else "_" for c in food_name)
 
+    # Initialise session_state with original food values (only on first load for this food)
+    session_key = f"comp_data_{safe_key}"
+    if session_key not in st.session_state:
+        st.session_state[session_key] = {col: food_data[key] for col, key in EDIT_COLS.items()}
+
     with st.expander("✏️ Editar Valores", expanded=False):
+        edit_df = pd.DataFrame([st.session_state[session_key]])
         edited = st.data_editor(
             edit_df,
             use_container_width=True,
@@ -453,10 +455,14 @@ def show_food_analysis():
                 "FC (%)": st.column_config.NumberColumn("FC (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
             },
         )
+        # Persist edits into session_state so they survive re-runs
+        for col in EDIT_COLS:
+            st.session_state[session_key][col] = float(edited[col].iloc[0])
 
-    # Build updated food_data from edited values using the same mapping
+    # Build updated food_data from session_state (always up-to-date)
     edited_food_data = dict(food_data)
-    edited_food_data.update({key: float(edited[col].iloc[0]) for col, key in EDIT_COLS.items()})
+    for col, key in EDIT_COLS.items():
+        edited_food_data[key] = st.session_state[session_key][col]
 
     # Recalculate derived values from edited data
     ENA = calculate_ena(edited_food_data)
