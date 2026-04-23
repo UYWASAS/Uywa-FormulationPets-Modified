@@ -439,19 +439,20 @@ def show_food_analysis():
     # Sanitize food_name for use as a widget key
     safe_key = "".join(c if c.isalnum() else "_" for c in food_name)
 
-    edited = st.data_editor(
-        edit_df,
-        use_container_width=True,
-        hide_index=True,
-        key=f"comp_editor_{safe_key}",
-        column_config={
-            "PB (%)": st.column_config.NumberColumn("PB (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
-            "EE (%)": st.column_config.NumberColumn("EE (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
-            "Cenizas (%)": st.column_config.NumberColumn("Cenizas (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
-            "Humedad (%)": st.column_config.NumberColumn("Humedad (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
-            "FC (%)": st.column_config.NumberColumn("FC (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
-        },
-    )
+    with st.expander("✏️ Editar Valores", expanded=False):
+        edited = st.data_editor(
+            edit_df,
+            use_container_width=True,
+            hide_index=True,
+            key=f"comp_editor_{safe_key}",
+            column_config={
+                "PB (%)": st.column_config.NumberColumn("PB (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
+                "EE (%)": st.column_config.NumberColumn("EE (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
+                "Cenizas (%)": st.column_config.NumberColumn("Cenizas (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
+                "Humedad (%)": st.column_config.NumberColumn("Humedad (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
+                "FC (%)": st.column_config.NumberColumn("FC (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f"),
+            },
+        )
 
     # Build updated food_data from edited values using the same mapping
     edited_food_data = dict(food_data)
@@ -461,14 +462,54 @@ def show_food_analysis():
     ENA = calculate_ena(edited_food_data)
     energy = calculate_energy(edited_food_data)
 
-    # Show calculated (read-only) values
-    col_c1, col_c2, col_c3 = st.columns(3)
-    with col_c1:
-        st.metric("🌾 ENA / Carbohidratos (%)", f"{ENA:.1f} %", help="Calculado por diferencia: 100 - PB - EE - Ash - Humidity - FC")
-    with col_c2:
-        st.metric("🔬 Materia Seca (MS) (%)", f"{energy['MS']:.1f} %", help="MS = 100 - Humedad")
-    with col_c3:
-        st.metric("📐 FC en base MS (%)", f"{energy['FC_MS']:.2f} %", help="FC_MS = (FC / MS) × 100")
+    # Show calculated (read-only) values as prominent styled cards
+    st.markdown("### 📈 Valores Calculados")
+    st.markdown(
+        f"""
+        <div style="display:flex;flex-direction:column;gap:16px;margin-top:8px;margin-bottom:16px;">
+            <div style="background:linear-gradient(135deg,#eef6ff,#ddeeff);
+                        border:1px solid #b3d4f5;border-radius:12px;padding:20px 28px;
+                        box-shadow:0 2px 8px rgba(33,118,255,0.10);">
+                <div style="font-size:1rem;color:#5a6e8c;font-weight:600;margin-bottom:4px;">
+                    🌾 ENA / Carbohidratos
+                </div>
+                <div style="font-size:2rem;font-weight:700;color:#2176FF;">
+                    {ENA:.1f} %
+                </div>
+                <div style="font-size:0.78rem;color:#8a9bbf;margin-top:2px;">
+                    Calculado por diferencia: 100 − PB − EE − Ash − Humedad − FC
+                </div>
+            </div>
+            <div style="background:linear-gradient(135deg,#edfff4,#d5f5e3);
+                        border:1px solid #a9dfc0;border-radius:12px;padding:20px 28px;
+                        box-shadow:0 2px 8px rgba(39,174,96,0.10);">
+                <div style="font-size:1rem;color:#5a6e8c;font-weight:600;margin-bottom:4px;">
+                    🔬 Materia Seca (MS)
+                </div>
+                <div style="font-size:2rem;font-weight:700;color:#27ae60;">
+                    {energy['MS']:.1f} %
+                </div>
+                <div style="font-size:0.78rem;color:#8a9bbf;margin-top:2px;">
+                    MS = 100 − Humedad
+                </div>
+            </div>
+            <div style="background:linear-gradient(135deg,#fff8ee,#fdebd0);
+                        border:1px solid #f5cba7;border-radius:12px;padding:20px 28px;
+                        box-shadow:0 2px 8px rgba(255,183,3,0.10);">
+                <div style="font-size:1rem;color:#5a6e8c;font-weight:600;margin-bottom:4px;">
+                    📐 FC en base Materia Seca
+                </div>
+                <div style="font-size:2rem;font-weight:700;color:#e67e22;">
+                    {energy['FC_MS']:.2f} %
+                </div>
+                <div style="font-size:0.78rem;color:#8a9bbf;margin-top:2px;">
+                    FC_MS = (FC / MS) × 100
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # ---- Gráficos de composición ----
     col1, col2 = st.columns(2)
