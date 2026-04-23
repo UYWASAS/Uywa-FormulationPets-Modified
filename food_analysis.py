@@ -468,25 +468,24 @@ def show_food_analysis():
     ENA = calculate_ena(edited_food_data)
     energy = calculate_energy(edited_food_data)
 
-    # ---- Tabla consolidada de nutrientes proximales ----
-    st.markdown("#### 🧪 Composición Proximal del Alimento (Base tal como está)")
+    # ---- Métricas de nutrientes proximales ----
+    st.markdown("#### 📊 Composición Proximal")
 
-    proximal_df = pd.DataFrame([
-        {"Nutriente": "Proteína Bruta", "Símbolo": "PB", "Valor": edited_food_data["PB"], "Unidad": "%"},
-        {"Nutriente": "Extracto Etéreo (Grasa)", "Símbolo": "EE", "Valor": edited_food_data["EE"], "Unidad": "%"},
-        {"Nutriente": "Cenizas", "Símbolo": "Ash", "Valor": edited_food_data["Ash"], "Unidad": "%"},
-        {"Nutriente": "Humedad", "Símbolo": "Humidity", "Valor": edited_food_data["Humidity"], "Unidad": "%"},
-        {"Nutriente": "Fibra Cruda", "Símbolo": "FC", "Valor": edited_food_data["FC"], "Unidad": "%"},
-        {"Nutriente": "Extracto No Nitrogenado *", "Símbolo": "ENA", "Valor": ENA, "Unidad": "%"},
-    ])
-    st.dataframe(
-        proximal_df.set_index("Nutriente"),
-        use_container_width=True,
-        column_config={
-            "Valor": st.column_config.NumberColumn("Valor", format="%.2f"),
-        },
-    )
-    st.caption("* ENA calculado por diferencia: 100 − PB − EE − Ash − Humedad − FC")
+    prox_col1, prox_col2 = st.columns(2)
+    with prox_col1:
+        st.metric("🥩 Proteína Bruta (PB)", f"{edited_food_data['PB']:.2f} %",
+                  help="PB: Proteína Bruta (base tal como está)")
+        st.metric("⚫ Cenizas", f"{edited_food_data['Ash']:.2f} %",
+                  help="Contenido de cenizas (minerales totales)")
+        st.metric("🌾 Fibra Cruda (FC)", f"{edited_food_data['FC']:.2f} %",
+                  help="Fibra Cruda (base tal como está)")
+    with prox_col2:
+        st.metric("🧈 Extracto Etéreo (EE)", f"{edited_food_data['EE']:.2f} %",
+                  help="EE: Grasa o Extracto Etéreo (base tal como está)")
+        st.metric("💧 Humedad", f"{edited_food_data['Humidity']:.2f} %",
+                  help="Contenido de humedad del alimento")
+        st.metric("🌽 Extracto No Nitrogenado (ENA)", f"{ENA:.2f} %",
+                  help="ENA calculado por diferencia: 100 − PB − EE − Ash − Humedad − FC")
 
     st.markdown("#### 📈 Valores Derivados")
 
