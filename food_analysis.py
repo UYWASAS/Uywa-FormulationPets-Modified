@@ -468,27 +468,25 @@ def show_food_analysis():
     ENA = calculate_ena(edited_food_data)
     energy = calculate_energy(edited_food_data)
 
-    # Show all nutrients as large metric cards
-    st.markdown("#### 📊 Composición del Alimento (Base tal como está)")
+    # ---- Tabla consolidada de nutrientes proximales ----
+    st.markdown("#### 🧪 Composición Proximal del Alimento (Base tal como está)")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("🥩 Proteína Bruta (PB)", f"{edited_food_data['PB']:.1f} %")
-    with col2:
-        st.metric("🧈 Extracto Etéreo (EE)", f"{edited_food_data['EE']:.1f} %")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("⚫ Cenizas", f"{edited_food_data['Ash']:.1f} %")
-    with col2:
-        st.metric("💧 Humedad", f"{edited_food_data['Humidity']:.1f} %")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("🌾 Fibra Cruda (FC)", f"{edited_food_data['FC']:.1f} %")
-    with col2:
-        st.metric("🌽 Extracto No Nitrogenado (ENA)", f"{ENA:.1f} %",
-                  help="Calculado por diferencia: 100 − PB − EE − Ash − Humedad − FC")
+    proximal_df = pd.DataFrame([
+        {"Nutriente": "Proteína Bruta", "Símbolo": "PB", "Valor": edited_food_data["PB"], "Unidad": "%"},
+        {"Nutriente": "Extracto Etéreo (Grasa)", "Símbolo": "EE", "Valor": edited_food_data["EE"], "Unidad": "%"},
+        {"Nutriente": "Cenizas", "Símbolo": "Ash", "Valor": edited_food_data["Ash"], "Unidad": "%"},
+        {"Nutriente": "Humedad", "Símbolo": "Humidity", "Valor": edited_food_data["Humidity"], "Unidad": "%"},
+        {"Nutriente": "Fibra Cruda", "Símbolo": "FC", "Valor": edited_food_data["FC"], "Unidad": "%"},
+        {"Nutriente": "Extracto No Nitrogenado *", "Símbolo": "ENA", "Valor": ENA, "Unidad": "%"},
+    ])
+    st.dataframe(
+        proximal_df.set_index("Nutriente"),
+        use_container_width=True,
+        column_config={
+            "Valor": st.column_config.NumberColumn("Valor", format="%.2f"),
+        },
+    )
+    st.caption("* ENA calculado por diferencia: 100 − PB − EE − Ash − Humedad − FC")
 
     st.markdown("#### 📈 Valores Derivados")
 
@@ -522,6 +520,24 @@ def show_food_analysis():
         </div>
         """,
         unsafe_allow_html=True,
+    )
+
+    # Tabla de valores energéticos calculados (paso a paso)
+    st.markdown("#### 📋 Resultados del Cálculo Energético (NRC)")
+    energy_calc_df = pd.DataFrame([
+        {"Parámetro": "Materia Seca (MS)", "Valor": energy["MS"], "Unidad": "%"},
+        {"Parámetro": "FC en base MS (FC_MS)", "Valor": energy["FC_MS"], "Unidad": "%"},
+        {"Parámetro": "Energía Bruta (GE)", "Valor": energy["GE"], "Unidad": "kcal/100g"},
+        {"Parámetro": "Digestibilidad Energética (DE%)", "Valor": energy["DE_pct"], "Unidad": "%"},
+        {"Parámetro": "Energía Digestible (DE)", "Valor": energy["DE"], "Unidad": "kcal/100g"},
+        {"Parámetro": "Energía Metabolizable (ME)", "Valor": energy["ME"], "Unidad": "kcal/100g"},
+    ])
+    st.dataframe(
+        energy_calc_df.set_index("Parámetro"),
+        use_container_width=True,
+        column_config={
+            "Valor": st.column_config.NumberColumn("Valor", format="%.2f"),
+        },
     )
 
     # ME destacada
