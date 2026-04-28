@@ -664,6 +664,8 @@ with tabs[0]:
         kg_dieta_necesaria = mer_final / 4000.0
 
         requerimientos_ajustados = []
+        _req_pb_g = None
+        _req_ee_g = None
         for nutriente, valores in nutrientes_especie_etapa.items():
             unidad = valores.get("unit", "")
             min_valor = valores.get("min", None)
@@ -673,6 +675,10 @@ with tabs[0]:
                 min_ajustado = (min_valor / 100.0) * kg_dieta_necesaria * 1000 if min_valor is not None else None
                 max_ajustado = (max_valor / 100.0) * kg_dieta_necesaria * 1000 if max_valor is not None else None
                 nueva_unidad = "g"
+                if nutriente == "Proteína" and min_ajustado is not None:
+                    _req_pb_g = min_ajustado
+                elif nutriente == "Grasa" and min_ajustado is not None:
+                    _req_ee_g = min_ajustado
             elif unidad in ["mg/kg", "UI/kg", "IU/kg", "µg/kg"]:
                 unidad_base = unidad.replace("/kg", "")
                 min_ajustado = min_valor * kg_dieta_necesaria if min_valor is not None else None
@@ -689,6 +695,9 @@ with tabs[0]:
                 "Max Ajustado": fmt2(max_ajustado) if max_ajustado is not None else "-",
                 "Unidad": nueva_unidad,
             })
+
+        st.session_state["req_pb_g"] = _req_pb_g
+        st.session_state["req_ee_g"] = _req_ee_g
 
         df_nutrientes_ajustados = pd.DataFrame(requerimientos_ajustados)
         st.session_state["tabla_requerimientos_base"] = df_nutrientes_ajustados.copy()
