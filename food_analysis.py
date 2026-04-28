@@ -287,7 +287,8 @@ def plot_energy_breakdown_stacked(selected_foods):
 
 def show_energy_breakdown_cards(selected_foods):
     """
-    Renderiza cards individuales por alimento con el desglose energético porcentual.
+    Renderiza cards individuales por alimento con el desglose energético porcentual
+    e información de las fuentes principales de cada nutriente.
 
     Parámetros:
         selected_foods (list[str]): Lista de nombres de alimentos a mostrar.
@@ -299,6 +300,27 @@ def show_energy_breakdown_cards(selected_foods):
             continue
         bd = calculate_energy_breakdown(fdata)
         col = cols[idx % 3]
+
+        source_pb = fdata.get("source_pb", "")
+        source_ee = fdata.get("source_ee", "")
+        source_fc = fdata.get("source_fc", "")
+
+        source_pb_html = (
+            f'<div style="font-size:0.75rem;color:#4a5568;margin-top:2px;margin-bottom:6px;">'
+            f'Proviene de: {source_pb}</div>'
+            if source_pb else ""
+        )
+        source_ee_html = (
+            f'<div style="font-size:0.75rem;color:#4a5568;margin-top:2px;margin-bottom:6px;">'
+            f'Proviene de: {source_ee}</div>'
+            if source_ee else ""
+        )
+        source_fc_html = (
+            f'<div style="font-size:0.75rem;color:#4a5568;margin-top:2px;margin-bottom:6px;">'
+            f'Proviene de: {source_fc}</div>'
+            if source_fc else ""
+        )
+
         with col:
             st.markdown(
                 f"""
@@ -316,7 +338,8 @@ def show_energy_breakdown_cards(selected_foods):
                         </span>
                     </div>
                     <div style="background:#2176FF;height:6px;border-radius:4px;
-                                width:{bd['pct_pb']:.1f}%;margin-bottom:8px;"></div>
+                                width:{bd['pct_pb']:.1f}%;margin-bottom:2px;"></div>
+                    {source_pb_html}
                     <div style="display:flex;justify-content:space-between;align-items:center;
                                 margin-bottom:5px;">
                         <span style="color:#FFB703;font-weight:600;font-size:0.85rem;">🧈 Grasa</span>
@@ -326,7 +349,8 @@ def show_energy_breakdown_cards(selected_foods):
                         </span>
                     </div>
                     <div style="background:#FFB703;height:6px;border-radius:4px;
-                                width:{bd['pct_ee']:.1f}%;margin-bottom:8px;"></div>
+                                width:{bd['pct_ee']:.1f}%;margin-bottom:2px;"></div>
+                    {source_ee_html}
                     <div style="display:flex;justify-content:space-between;align-items:center;
                                 margin-bottom:5px;">
                         <span style="color:#52B788;font-weight:600;font-size:0.85rem;">🌾 Carbohidratos</span>
@@ -336,7 +360,8 @@ def show_energy_breakdown_cards(selected_foods):
                         </span>
                     </div>
                     <div style="background:#52B788;height:6px;border-radius:4px;
-                                width:{bd['pct_cho']:.1f}%;margin-bottom:10px;"></div>
+                                width:{bd['pct_cho']:.1f}%;margin-bottom:2px;"></div>
+                    {source_fc_html}
                     <div style="font-size:0.8rem;color:#5a6e8c;text-align:center;margin-top:6px;">
                         ME: <b>{bd['ME']:.1f} kcal/100g</b>
                     </div>
@@ -497,12 +522,8 @@ def show_food_analysis():
         st.metric("📐 FC en base MS", f"{energy['FC_MS']:.2f} %",
                   help="FC_MS = (FC / MS) × 100")
 
-    # ---- Gráficos de composición ----
-    col1, col2 = st.columns(2)
-    with col1:
-        st.plotly_chart(plot_macronutrients(food_name, edited_food_data), use_container_width=True)
-    with col2:
-        st.plotly_chart(plot_macronutrients_pie(food_name, edited_food_data), use_container_width=True)
+    # ---- Gráfico de composición (torta/donut) ----
+    st.plotly_chart(plot_macronutrients_pie(food_name, edited_food_data), use_container_width=True)
 
     # ---- Sección de energía metabolizable ----
     st.subheader("⚡ Cálculo de Energía Metabolizable (Modelo NRC)")
@@ -610,9 +631,13 @@ def show_food_analysis():
     # Tabla de desglose
     if mer_animal and mer_animal > 0:
         cobertura_pct = (me_total_kcal / mer_animal) * 100.0
+        gramos_pb = (edited_food_data["PB"] / 100.0) * gramos_input
+        gramos_ee = (edited_food_data["EE"] / 100.0) * gramos_input
         aporte_df = pd.DataFrame([
             {"Concepto": "ME del alimento (kcal/100g)", "Valor": f"{me_por_100g:.2f} kcal/100g"},
             {"Concepto": f"Gramos diarios de {food_name}", "Valor": f"{gramos_input:.1f} g/día"},
+            {"Concepto": "Gramos de Proteína Bruta (PB)", "Valor": f"{gramos_pb:.2f} g/día"},
+            {"Concepto": "Gramos de Grasa (EE)", "Valor": f"{gramos_ee:.2f} g/día"},
             {"Concepto": "Energía Metabolizable aportada", "Valor": f"{me_total_kcal:.2f} kcal/día"},
             {"Concepto": "MER del animal", "Valor": f"{mer_animal:.2f} kcal/día"},
             {"Concepto": "Cobertura energética", "Valor": f"{cobertura_pct:.1f}%"},
