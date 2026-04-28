@@ -123,6 +123,10 @@ def load_diets_from_csv(csv_path: str) -> dict:
                         "presentations": row.get("Presentaciones", "").strip(),
                         "availability": row.get("Disponibilidad", "").strip(),
                         "benefits": row.get("Beneficios", "").strip(),
+                        # Fuentes principales de nutrientes
+                        "source_pb": row.get("Fuente_PB", "").strip(),
+                        "source_ee": row.get("Fuente_EE", "").strip(),
+                        "source_fc": row.get("Fuente_FC", "").strip(),
                     }
                     foods[nombre] = entry
                 except (ValueError, KeyError):
