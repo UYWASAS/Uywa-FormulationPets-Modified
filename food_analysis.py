@@ -1,6 +1,7 @@
 # ======================== ANÁLISIS NUTRICIONAL DE ALIMENTOS ========================
 import plotly.graph_objects as go
 import plotly.express as px
+from plotly.subplots import make_subplots
 import pandas as pd
 import streamlit as st
 
@@ -401,6 +402,132 @@ def build_energy_breakdown_table(selected_foods):
     return pd.DataFrame(rows)
 
 
+def plot_nutrient_comparison(mer_animal, me_total_kcal, req_pb_g, gramos_pb, req_ee_g, gramos_ee):
+    """
+    Crea un gráfico de subplots (3 paneles) comparando Requerimiento vs Aporte
+    para Energía, Proteína y Grasa, con colores que indican el estado de cobertura.
+
+    Colores:
+        - 🔵 Azul  (#2176FF) : Aporte < 90% del requerimiento (bajo)
+        - 🟢 Verde (#52B788) : Aporte entre 90-110% (en rango)
+        - 🟠 Naranja (#FF6B35): Aporte > 110% (excedido)
+
+    Parámetros:
+        mer_animal (float)   : Requerimiento energético diario (kcal/día).
+        me_total_kcal (float): Energía aportada por la ración (kcal/día).
+        req_pb_g (float|None): Requerimiento mínimo de proteína (g/día).
+        gramos_pb (float)    : Proteína aportada por la ración (g/día).
+        req_ee_g (float|None): Requerimiento mínimo de grasa (g/día).
+        gramos_ee (float)    : Grasa aportada por la ración (g/día).
+
+    Retorna:
+        plotly.graph_objects.Figure
+    """
+    def _coverage_color(aporte, req):
+        if req is None or req <= 0:
+            return "#2176FF"
+        pct = (aporte / req) * 100.0
+        if pct < 90.0:
+            return "#2176FF"   # Azul — bajo
+        elif pct <= 110.0:
+            return "#52B788"   # Verde — en rango
+        else:
+            return "#FF6B35"   # Naranja — excedido
+
+    def _coverage_label(aporte, req):
+        if req is None or req <= 0:
+            return "Sin referencia"
+        pct = (aporte / req) * 100.0
+        if pct < 90.0:
+            return f"🔵 Bajo ({pct:.0f}%)"
+        elif pct <= 110.0:
+            return f"🟢 En rango ({pct:.0f}%)"
+        else:
+            return f"🟠 Excedido ({pct:.0f}%)"
+
+    panels = [
+        {
+            "title": "⚡ Energía",
+            "unit": "kcal/día",
+            "req": mer_animal,
+            "aporte": me_total_kcal,
+        },
+        {
+            "title": "🥩 Proteína (PB)",
+            "unit": "g/día",
+            "req": req_pb_g if req_pb_g else 0.0,
+            "aporte": gramos_pb,
+        },
+        {
+            "title": "🧈 Grasa (EE)",
+            "unit": "g/día",
+            "req": req_ee_g if req_ee_g else 0.0,
+            "aporte": gramos_ee,
+        },
+    ]
+
+    fig = make_subplots(
+        rows=1,
+        cols=3,
+        subplot_titles=[p["title"] for p in panels],
+        horizontal_spacing=0.12,
+    )
+
+    for i, panel in enumerate(panels, start=1):
+        aporte_color = _coverage_color(panel["aporte"], panel["req"])
+        show_legend = (i == 1)
+
+        fig.add_trace(
+            go.Bar(
+                name="🎯 Requerimiento",
+                x=["Requerimiento"],
+                y=[panel["req"]],
+                marker_color="#8E9AAF",
+                text=[f"{panel['req']:.1f}"],
+                textposition="outside",
+                hovertemplate=f"<b>Requerimiento</b><br>%{{y:.2f}} {panel['unit']}<extra></extra>",
+                showlegend=show_legend,
+                legendgroup="req",
+            ),
+            row=1,
+            col=i,
+        )
+        fig.add_trace(
+            go.Bar(
+                name="📦 Aporte del Alimento",
+                x=["Aporte"],
+                y=[panel["aporte"]],
+                marker_color=aporte_color,
+                text=[f"{panel['aporte']:.1f}"],
+                textposition="outside",
+                hovertemplate=(
+                    f"<b>Aporte</b><br>%{{y:.2f}} {panel['unit']}<br>"
+                    f"{_coverage_label(panel['aporte'], panel['req'])}<extra></extra>"
+                ),
+                showlegend=show_legend,
+                legendgroup="aporte",
+            ),
+            row=1,
+            col=i,
+        )
+        fig.update_yaxes(title_text=panel["unit"], row=1, col=i)
+
+    fig.update_layout(
+        barmode="group",
+        title=dict(
+            text="Requerimiento vs Aporte por Nutriente",
+            font=dict(size=15, family="Montserrat, sans-serif"),
+        ),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        height=430,
+        margin=dict(t=80, b=80, l=50, r=30),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+        font=dict(family="Montserrat, sans-serif"),
+    )
+    return fig
+
+
 def show_food_analysis():
     """
     Renderiza la interfaz de análisis nutricional en el Tab de Análisis de Streamlit.
@@ -628,54 +755,42 @@ def show_food_analysis():
         else:
             st.metric(label="📊 Cobertura Energética", value="—", help="Completa el perfil en Tab 1 para obtener el MER.")
 
-    # Tabla de desglose
+    # Gramos de nutrientes aportados (siempre calculados)
+    gramos_pb = (edited_food_data["PB"] / 100.0) * gramos_input
+    gramos_ee = (edited_food_data["EE"] / 100.0) * gramos_input
+
+    # Requerimientos de proteína y grasa del perfil de la mascota (Tab 1)
+    req_pb_g = st.session_state.get("req_pb_g", None)
+    req_ee_g = st.session_state.get("req_ee_g", None)
+
+    # Tabla de desglose — siempre visible con PB y EE en gramos
+    st.markdown("#### 📋 Resultados del Cálculo Energético (NRC)")
+    base_rows = [
+        {"Concepto": "ME del alimento (kcal/100g)", "Valor": f"{me_por_100g:.2f} kcal/100g"},
+        {"Concepto": f"Gramos diarios de {food_name}", "Valor": f"{gramos_input:.1f} g/día"},
+        {"Concepto": "Gramos de Proteína Bruta (PB)", "Valor": f"{gramos_pb:.2f} g/día"},
+        {"Concepto": "Gramos de Grasa (EE)", "Valor": f"{gramos_ee:.2f} g/día"},
+        {"Concepto": "Energía Metabolizable aportada", "Valor": f"{me_total_kcal:.2f} kcal/día"},
+    ]
     if mer_animal and mer_animal > 0:
         cobertura_pct = (me_total_kcal / mer_animal) * 100.0
-        gramos_pb = (edited_food_data["PB"] / 100.0) * gramos_input
-        gramos_ee = (edited_food_data["EE"] / 100.0) * gramos_input
-        aporte_df = pd.DataFrame([
-            {"Concepto": "ME del alimento (kcal/100g)", "Valor": f"{me_por_100g:.2f} kcal/100g"},
-            {"Concepto": f"Gramos diarios de {food_name}", "Valor": f"{gramos_input:.1f} g/día"},
-            {"Concepto": "Gramos de Proteína Bruta (PB)", "Valor": f"{gramos_pb:.2f} g/día"},
-            {"Concepto": "Gramos de Grasa (EE)", "Valor": f"{gramos_ee:.2f} g/día"},
-            {"Concepto": "Energía Metabolizable aportada", "Valor": f"{me_total_kcal:.2f} kcal/día"},
+        base_rows += [
             {"Concepto": "MER del animal", "Valor": f"{mer_animal:.2f} kcal/día"},
             {"Concepto": "Cobertura energética", "Valor": f"{cobertura_pct:.1f}%"},
-        ])
-        st.dataframe(aporte_df.set_index("Concepto"), use_container_width=True)
+        ]
+    aporte_df = pd.DataFrame(base_rows)
+    st.dataframe(aporte_df.set_index("Concepto"), use_container_width=True)
 
-        # Gráfico de barras Requerimiento vs Aporte
-        fig_aporte = go.Figure()
-        fig_aporte.add_trace(go.Bar(
-            name="MER Requerida",
-            x=["Energía (kcal/día)"],
-            y=[mer_animal],
-            marker_color="#8E9AAF",
-            text=[f"{mer_animal:.1f} kcal"],
-            textposition="outside",
-        ))
-        fig_aporte.add_trace(go.Bar(
-            name="Aporte del Alimento",
-            x=["Energía (kcal/día)"],
-            y=[me_total_kcal],
-            marker_color="#2176FF" if cobertura_pct <= ENERGY_COVERAGE_THRESHOLD else "#FFB703",
-            text=[f"{me_total_kcal:.1f} kcal"],
-            textposition="outside",
-        ))
-        fig_aporte.update_layout(
-            barmode="group",
-            title=dict(
-                text="Requerimiento Energético vs Aporte del Alimento",
-                font=dict(size=15, family="Montserrat, sans-serif"),
+    # Gráfico comparativo mejorado (solo cuando MER disponible)
+    if mer_animal and mer_animal > 0:
+        st.plotly_chart(
+            plot_nutrient_comparison(
+                mer_animal, me_total_kcal,
+                req_pb_g, gramos_pb,
+                req_ee_g, gramos_ee,
             ),
-            yaxis_title="kcal / día",
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            height=360,
-            margin=dict(t=60, b=40, l=60, r=40),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+            use_container_width=True,
         )
-        st.plotly_chart(fig_aporte, use_container_width=True)
     else:
         st.info("💡 Completa el perfil de la mascota en la pestaña **Perfil de Mascota** para obtener el MER y calcular la cobertura energética.")
 
