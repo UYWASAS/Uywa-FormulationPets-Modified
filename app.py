@@ -36,8 +36,17 @@ from energy_requirements import descripcion_condiciones
 from auth import USERS_DB
 from food_analysis import show_food_analysis
 from food_database import FOODS, calculate_energy as calc_energy_food, calculate_ena as calc_ena_food, get_food_names as get_food_names_db
+from food_database import calculate_energy_breakdown
 from PIL import Image
 import io
+import datetime
+from export_tools import (
+    generar_diagnostico_resumen,
+    generar_recomendaciones,
+    generar_decision_resumen,
+    exportar_a_excel,
+    exportar_a_html,
+)
 
 # Umbral de cobertura energética para alertas visuales (%)
 ENERGY_COVERAGE_THRESHOLD = 110
@@ -744,6 +753,11 @@ with tabs[0]:
             senior_aplicado = True
 
         st.session_state["energia_actual"] = mer_final
+        # Almacenar valores intermedios para Pestaña 3
+        st.session_state["rer_actual"] = energia_basal_actual
+        st.session_state["mer_base_actual"] = mer_actual
+        st.session_state["factor_fisiologico_actual"] = factor_fisiologico
+        st.session_state["senior_aplicado_actual"] = senior_aplicado
 
     except Exception as e:
         st.error(f"Error en cálculos energéticos: {str(e)}")
@@ -856,6 +870,12 @@ with tabs[0]:
 
     _riesgo_class = {"Bajo": "low-risk", "Moderado": "moderate-risk", "Alto": "high-risk"}.get(_riesgo, "low-risk")
     _riesgo_icon = RIESGO_ICONS.get(_riesgo, "🟢")
+
+    # Almacenar diagnóstico para Pestaña 3
+    st.session_state["estado_corporal_tab1"] = _estado_corporal
+    st.session_state["riesgo_nutricional_tab1"] = _riesgo
+    st.session_state["prioridad_nutricional_tab1"] = _prioridad
+    st.session_state["interpretacion_diagnostico_tab1"] = _interpretacion
 
     st.markdown(
         f"""
@@ -1120,293 +1140,329 @@ def get_unidades_dict(nutrientes):
 
 # ======================== BLOQUE 9: RESUMEN Y EXPORTAR ========================
 with tabs[2]:
-    st.header("Resumen general y exportación")
+    st.header("📋 Resumen y Exportación")
 
-    # --- CSS de tabla bonita (igual que requerimientos) ---
-    st.markdown("""
-        <style>
-        .styled-table {
-            border-collapse: collapse;
-            margin: 10px 0 20px 0;
-            font-size: 16px;
-            min-width: 390px;
-            width: 90%;
-            border-radius: 14px 14px 0 0;
-            overflow: hidden;
-            box-shadow: 0 2px 10px #e3ecf7;
-        }
-        .styled-table th {
-            background-color: #19345c !important;
-            color: #fff;
-            text-align: center;
-            font-weight: bold;
-            padding: 10px 7px;
-            font-size: 17px;
-            border-right: 1px solid #e3ecf7;
-        }
-        .styled-table td {
-            padding: 7px 7px;
-            text-align: center;
-            border-bottom: 1px solid #e3ecf7;
-            font-size: 16px;
-        }
-        .styled-table tr:nth-child(even) {
-            background-color: #f3f6fa;
-        }
-        .styled-table tr:nth-child(odd) {
-            background-color: #eaf3fc;
-        }
-        .styled-table td.min-cell, .styled-table td.obt-cell {
-            font-weight: bold;
-            color: #23783d;
-            background: #e0f7e9;
-            border-radius: 6px;
-        }
-        .styled-table td.fail-cell {
-            color: #c0392b;
-            background: #ffeaea;
-        }
-        .photo-box {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 140px;
-            background: #eaf3fc;
-            border-radius: 12px;
-            color: #19345c;
-            font-size: 18px;
-            font-weight: 600;
-            border: 1px solid #e3ecf7;
-            margin-bottom: 8px;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    # ── Leer datos del perfil ──────────────────────────────────────────────────
+    _perfil3 = st.session_state.get("profile", {})
+    _mascota3 = _perfil3.get("mascota", {})
 
-    # === 1. Perfil de la mascota ===
-    perfil = st.session_state.get("profile", {})
-    mascota = perfil.get("mascota", {})
-    st.subheader("Perfil de la mascota")
-    cols = st.columns([1, 3])
+    _nombre3 = st.session_state.get("nombre_mascota", _mascota3.get("nombre", "—")) or "—"
+    _especie3 = st.session_state.get("especie_mascota", _mascota3.get("especie", "perro"))
+    _edad3 = safe_float(st.session_state.get("edad_mascota", _mascota3.get("edad", 1.0)), 1.0)
+    _peso3 = safe_float(st.session_state.get("peso_mascota", _mascota3.get("peso", 12.0)), 12.0)
+    _etapa3 = st.session_state.get("etapa_mascota", _mascota3.get("etapa", "adulto"))
+    _condicion3 = st.session_state.get("condicion_mascota", _mascota3.get("condicion", "Castrado"))
+    _bcs3 = max(1, min(9, int(safe_float(st.session_state.get("bcs_mascota", _mascota3.get("bcs", 5)), 5))))
 
-    with cols[0]:
-        # --- FOTO UX MEJORADO ---
-        foto_guardada = st.session_state.get("mascota_foto", None)
-        nueva_foto = None
-        show_preview = False
-        img_preview = None
+    # ── Leer datos energéticos calculados en Pestaña 1 ────────────────────────
+    _mer_final3 = st.session_state.get("energia_actual", None)
+    _rer3 = st.session_state.get("rer_actual", None)
+    _mer_base3 = st.session_state.get("mer_base_actual", None)
+    _factor_fis3 = st.session_state.get("factor_fisiologico_actual", None)
+    _senior3 = st.session_state.get("senior_aplicado_actual", False)
+    _estado_corp3 = st.session_state.get("estado_corporal_tab1", get_estado_corporal(_bcs3))
+    _riesgo3 = st.session_state.get("riesgo_nutricional_tab1", "—")
+    _prioridad3 = st.session_state.get("prioridad_nutricional_tab1", "—")
+    _aplicar_senior3 = bool(st.session_state.get("aplicar_ajuste_senior_mascota", False))
 
-        # 1. Si NO hay foto guardada, mostrar uploader
-        if foto_guardada is None:
-            nueva_foto = st.file_uploader(
-                "Cargar o reemplazar foto",
-                type=["png", "jpg", "jpeg"],
-                key="foto_resumen",
-                label_visibility="visible"
+    # ── Leer datos del alimento evaluado en Pestaña 2 ─────────────────────────
+    _food_name3 = st.session_state.get("analysis_food_selector", None)
+    _food_data3 = FOODS.get(_food_name3, {}) if _food_name3 else {}
+    _food_energy3 = calc_energy_food(_food_data3) if _food_data3 else {}
+    _food_ena3 = calc_ena_food(_food_data3) if _food_data3 else 0.0
+    _gramos3 = safe_float(
+        st.session_state.get(f"gramos_alimento_{_food_name3}", 100.0), 100.0
+    ) if _food_name3 else 0.0
+
+    # Calcular valores derivados de alimento
+    _me3 = _food_energy3.get("ME", 0.0) if _food_energy3 else 0.0
+    _aporte3 = (_me3 / 100.0) * _gramos3
+    _req_pb3 = st.session_state.get("req_pb_g", None)
+    _req_ee3 = st.session_state.get("req_ee_g", None)
+    _gramos_pb3 = (_food_data3.get("PB", 0) / 100.0) * _gramos3 if _food_data3 else 0.0
+    _gramos_ee3 = (_food_data3.get("EE", 0) / 100.0) * _gramos3 if _food_data3 else 0.0
+
+    _datos_completos = (_mer_final3 is not None and _mer_final3 > 0 and _food_name3 is not None)
+
+    if _datos_completos:
+        _cobertura3 = (_aporte3 / _mer_final3) * 100.0
+        _gramos_rec3 = (_mer_final3 / (_me3 / 100.0)) if _me3 > 0 else 0.0
+        _dif_g3 = _gramos_rec3 - _gramos3
+        _cob_pb3 = (_gramos_pb3 / _req_pb3 * 100.0) if (_req_pb3 and _req_pb3 > 0) else None
+        _cob_ee3 = (_gramos_ee3 / _req_ee3 * 100.0) if (_req_ee3 and _req_ee3 > 0) else None
+    else:
+        _cobertura3 = 0.0
+        _gramos_rec3 = 0.0
+        _dif_g3 = 0.0
+        _cob_pb3 = None
+        _cob_ee3 = None
+
+    # ── Generar textos del informe ─────────────────────────────────────────────
+    _diagnostico3 = generar_diagnostico_resumen(
+        _nombre3, _bcs3, _estado_corp3, _mer_final3 or 0.0,
+        _prioridad3, _condicion3, _edad3, _aplicar_senior3
+    )
+
+    _resultado3, _dif_kcal3, _interpretacion3 = generar_decision_resumen(
+        _cobertura3, _aporte3, _mer_final3 or 0.0,
+        _gramos3, _gramos_rec3, _cob_pb3, _cob_ee3
+    ) if _datos_completos else ("—", 0.0, "Complete el perfil y el análisis de alimento.")
+
+    _recomendaciones3 = generar_recomendaciones(
+        _estado_corp3, _bcs3, _edad3, _condicion3,
+        _cobertura3 if _datos_completos else None,
+        _cob_pb3, _cob_ee3
+    )
+
+    # ── SECCIÓN 1: RESUMEN DEL PACIENTE ───────────────────────────────────────
+    st.subheader("👤 Resumen del Paciente")
+    _rc1, _rc2 = st.columns(2)
+    _resumen_items_izq = [
+        ("Nombre", _nombre3),
+        ("Especie", _especie3.capitalize()),
+        ("Edad", f"{_edad3:.1f} años"),
+        ("Peso actual", f"{_peso3:.1f} kg"),
+    ]
+    _resumen_items_der = [
+        ("Etapa de vida", _etapa3.capitalize()),
+        ("Condición fisiológica", _condicion3),
+        ("BCS", f"{_bcs3}/9"),
+        ("Estado corporal", _estado_corp3),
+        ("Riesgo nutricional", _riesgo3),
+    ]
+    with _rc1:
+        for _lbl, _val in _resumen_items_izq:
+            st.markdown(
+                f"<div style='padding:6px 0;border-bottom:1px solid #eef0f4;'>"
+                f"<b>{_lbl}:</b> {_val}</div>",
+                unsafe_allow_html=True,
             )
-            if nueva_foto is not None:
-                try:
-                    img_preview = Image.open(nueva_foto)
-                    st.image(img_preview, width=130)
-                    show_preview = True
-                except Exception:
-                    st.warning("No se pudo cargar la imagen seleccionada.")
-            else:
-                st.markdown("<div class='photo-box'>No hay foto disponible.</div>", unsafe_allow_html=True)
+    with _rc2:
+        for _lbl, _val in _resumen_items_der:
+            st.markdown(
+                f"<div style='padding:6px 0;border-bottom:1px solid #eef0f4;'>"
+                f"<b>{_lbl}:</b> {_val}</div>",
+                unsafe_allow_html=True,
+            )
 
-            # Solo mostrar botón de guardar si hay preview
-            if show_preview and st.button("Guardar foto de la mascota", key="guardar_foto_resumen"):
-                st.session_state["mascota_foto"] = nueva_foto.getvalue()
-                st.success("Foto guardada correctamente.")
-                st.rerun()
+    # ── SECCIÓN 2: DIAGNÓSTICO NUTRICIONAL ────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("🩺 Diagnóstico Nutricional")
+    st.markdown(
+        f"<div style='background:#f0f8ff;border-left:4px solid #52B788;"
+        f"padding:14px 18px;border-radius:6px;font-size:0.97rem;'>"
+        f"{_diagnostico3}</div>",
+        unsafe_allow_html=True,
+    )
 
-        # 2. Si HAY foto guardada, mostrar solo imagen y botón eliminar
-        else:
-            try:
-                if isinstance(foto_guardada, Image.Image):
-                    st.image(foto_guardada, width=130)
-                elif isinstance(foto_guardada, bytes):
-                    st.image(Image.open(io.BytesIO(foto_guardada)), width=130)
-            except Exception:
-                st.markdown("<div class='photo-box'>No hay foto disponible.</div>", unsafe_allow_html=True)
-            if st.button("Eliminar foto de la mascota", key="eliminar_foto_resumen"):
-                del st.session_state["mascota_foto"]
-                st.rerun()
+    # ── SECCIÓN 3: REQUERIMIENTO ENERGÉTICO ───────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("⚡ Requerimiento Energético")
 
-    with cols[1]:
-        st.markdown(f"""
-        - <b>Nombre:</b> {mascota.get('nombre', 'No definido')}
-        - <b>Especie:</b> {mascota.get('especie', 'No definido')}
-        - <b>Edad:</b> {mascota.get('edad', 'No definido')} años
-        - <b>Peso:</b> {mascota.get('peso', 'No definido')} kg
-        - <b>Condición:</b> {mascota.get('condicion', 'No definido')}
-        """, unsafe_allow_html=True)
+    if _mer_final3 is not None:
+        _ec1, _ec2, _ec3, _ec4 = st.columns(4)
+        with _ec1:
+            st.metric("🔋 RER (kcal/día)", f"{_rer3:.1f}" if _rer3 else "—")
+        with _ec2:
+            st.metric("📊 MER base (kcal/día)", f"{_mer_base3:.1f}" if _mer_base3 else "—")
+        with _ec3:
+            st.metric("🎯 MER final (kcal/día)", f"{_mer_final3:.1f}")
+        with _ec4:
+            _bcs_adj = "Sí" if _bcs3 != 5 else "No"
+            _sen_adj = "Sí" if _senior3 else "No"
+            st.metric("⚙️ Ajuste BCS / Senior", f"{_bcs_adj} / {_sen_adj}")
 
-    # === 2. Requerimiento Energético del Animal ===
-    st.subheader("⚡ Requerimiento Energético del Animal")
-    mer_animal = st.session_state.get("energia_actual", None)
-    energia_basal = calcular_rer(mascota.get("peso", 0)) if mascota.get("peso") else None
-
-    if mer_animal is not None and energia_basal is not None:
-        factor_cond = round(mer_animal / energia_basal, 2) if energia_basal and energia_basal > 1e-6 else "-"
-        col_r1, col_r2, col_r3 = st.columns(3)
-        with col_r1:
-            st.metric("🔋 RER (Energía en Reposo)", f"{energia_basal:.1f} kcal/día")
-        with col_r2:
-            st.metric("🎯 MER (Requerimiento Diario)", f"{mer_animal:.1f} kcal/día")
-        with col_r3:
-            st.metric("⚙️ Factor de Condición", str(factor_cond))
+        _en_rows = [
+            ("RER (kcal/día)", f"{_rer3:.1f}" if _rer3 else "—"),
+            ("MER base (kcal/día)", f"{_mer_base3:.1f}" if _mer_base3 else "—"),
+            ("Factor fisiológico", f"{_factor_fis3:.2f}" if _factor_fis3 else "—"),
+            ("Ajuste por BCS", "Sí" if _bcs3 != 5 else "No"),
+            ("Ajuste senior (×0.85)", "Sí" if _senior3 else "No"),
+            ("MER final ajustado (kcal/día)", f"{_mer_final3:.1f}"),
+        ]
+        with st.expander("Ver detalle de requerimientos energéticos", expanded=False):
+            for _k, _v in _en_rows:
+                st.markdown(
+                    f"<div style='display:flex;justify-content:space-between;"
+                    f"padding:6px 0;border-bottom:1px solid #eef0f4;'>"
+                    f"<span style='font-weight:600'>{_k}</span><span>{_v}</span></div>",
+                    unsafe_allow_html=True,
+                )
     else:
         st.info("Completa el perfil de la mascota en la pestaña **Perfil de Mascota** para ver los requerimientos energéticos.")
 
-    # === 3. Composición de Alimentos Seleccionados (food_database) ===
-    st.subheader("🥗 Composición Nutricional de Alimentos Balanceados")
+    # ── SECCIÓN 4: ANÁLISIS DEL ALIMENTO ──────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("🍽️ Análisis del Alimento")
 
-    food_names_all = get_food_names_db()
-    selected_alimentos = st.multiselect(
-        "Selecciona alimentos para ver su composición",
-        food_names_all,
-        default=food_names_all[:2] if len(food_names_all) >= 2 else food_names_all,
-        key="resumen_alimentos_selector",
-    )
-
-    if selected_alimentos:
-        comp_alimentos_rows = []
-        for fname in selected_alimentos:
-            fdata = FOODS.get(fname, {})
-            if fdata:
-                ena = calc_ena_food(fdata)
-                energy_f = calc_energy_food(fdata)
-                comp_alimentos_rows.append({
-                    "Alimento": fname,
-                    "Categoría": fdata.get("category", ""),
-                    "PB (%)": fdata["PB"],
-                    "EE (%)": fdata["EE"],
-                    "Cenizas (%)": fdata["Ash"],
-                    "Humedad (%)": fdata["Humidity"],
-                    "FC (%)": fdata["FC"],
-                    "ENA (%)": round(ena, 2),
-                    "ME (kcal/100g)": round(energy_f["ME"], 2),
-                })
-        comp_alimentos_df = pd.DataFrame(comp_alimentos_rows)
-        st.dataframe(comp_alimentos_df.set_index("Alimento"), use_container_width=True)
-
-        # Gráfico radar de macronutrientes por alimento
-        st.markdown("**Gráfico Radar: Macronutrientes por Alimento**")
-        radar_fig = go.Figure()
-        radar_cats = ["PB (%)", "EE (%)", "Cenizas (%)", "FC (%)", "ENA (%)"]
-        colors_radar = RADAR_CHART_COLORS
-        for idx, fname in enumerate(selected_alimentos):
-            fdata = FOODS.get(fname, {})
-            if fdata:
-                ena = calc_ena_food(fdata)
-                vals = [fdata["PB"], fdata["EE"], fdata["Ash"], fdata["FC"], round(ena, 2)]
-                vals_closed = vals + [vals[0]]
-                cats_closed = radar_cats + [radar_cats[0]]
-                radar_fig.add_trace(go.Scatterpolar(
-                    r=vals_closed,
-                    theta=cats_closed,
-                    fill="toself",
-                    name=fname,
-                    line_color=colors_radar[idx % len(colors_radar)],
-                    opacity=0.6,
-                ))
-        radar_fig.update_layout(
-            polar=dict(radialaxis=dict(visible=True)),
-            showlegend=True,
-            height=420,
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            legend=dict(orientation="h", yanchor="bottom", y=-0.35, xanchor="center", x=0.5),
-            margin=dict(t=40, b=100, l=40, r=40),
-        )
-        st.plotly_chart(radar_fig, use_container_width=True)
-
-        # Aporte Energético Total si hay MER
-        if mer_animal and mer_animal > 0:
-            st.markdown("**Aporte Energético Total de los Alimentos Seleccionados**")
-            aporte_total_kcal = 0.0
-            aporte_por_alimento = []
-            for fname in selected_alimentos:
-                fdata = FOODS.get(fname, {})
-                if fdata:
-                    gramos_key = f"gramos_alimento_{fname}"
-                    gramos_sel = st.session_state.get(gramos_key, 0.0)
-                    energy_f = calc_energy_food(fdata)
-                    aporte_kcal = (energy_f["ME"] / 100.0) * gramos_sel
-                    aporte_total_kcal += aporte_kcal
-                    aporte_por_alimento.append({
-                        "Alimento": fname,
-                        "Gramos/día": gramos_sel,
-                        "ME (kcal/100g)": round(energy_f["ME"], 2),
-                        "Aporte (kcal/día)": round(aporte_kcal, 2),
-                    })
-            aporte_df = pd.DataFrame(aporte_por_alimento)
-            st.dataframe(aporte_df.set_index("Alimento"), use_container_width=True)
-
-            cobertura_total = (aporte_total_kcal / mer_animal) * 100.0
-            st.metric(
-                "📊 Cobertura Energética Total",
-                f"{cobertura_total:.1f}%",
-                delta=f"{aporte_total_kcal:.1f} kcal de {mer_animal:.1f} kcal requeridas",
-            )
-
-            # Gráfico de barras: Requerimiento vs Aporte Total
-            fig_comp_bar = go.Figure()
-            fig_comp_bar.add_trace(go.Bar(
-                name="MER Requerida",
-                x=["Energía (kcal/día)"],
-                y=[mer_animal],
-                marker_color="#8E9AAF",
-                text=[f"{mer_animal:.1f} kcal"],
-                textposition="outside",
-            ))
-            fig_comp_bar.add_trace(go.Bar(
-                name="Aporte Total Alimentos",
-                x=["Energía (kcal/día)"],
-                y=[aporte_total_kcal],
-                marker_color="#2176FF" if cobertura_total <= ENERGY_COVERAGE_THRESHOLD else "#FFB703",
-                text=[f"{aporte_total_kcal:.1f} kcal ({cobertura_total:.0f}%)"],
-                textposition="outside",
-            ))
-            fig_comp_bar.update_layout(
-                barmode="group",
-                title=dict(
-                    text="Requerimiento Energético vs Aporte Total",
-                    font=dict(size=15, family="Montserrat, sans-serif"),
-                ),
-                yaxis_title="kcal / día",
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-                height=360,
-                margin=dict(t=60, b=40, l=60, r=40),
-                legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-            )
-            st.plotly_chart(fig_comp_bar, use_container_width=True)
+    if _food_name3 and _food_data3:
+        _fa1, _fa2 = st.columns(2)
+        with _fa1:
+            st.markdown(f"**Alimento seleccionado:** {_food_name3}")
+            st.metric("⚡ ME (kcal/100g)", f"{_me3:.2f}")
+            st.metric("🥣 Gramos evaluados (g/día)", f"{_gramos3:.0f}")
+            st.metric("🔥 Energía aportada (kcal/día)", f"{_aporte3:.1f}")
+        with _fa2:
+            _comp_rows = [
+                ("Proteína Bruta (PB %)", _food_data3.get("PB", 0)),
+                ("Grasa (EE %)", _food_data3.get("EE", 0)),
+                ("Cenizas (%)", _food_data3.get("Ash", 0)),
+                ("Humedad (%)", _food_data3.get("Humidity", 0)),
+                ("Fibra Cruda (FC %)", _food_data3.get("FC", 0)),
+                ("ENA (%)", round(_food_ena3, 2)),
+            ]
+            for _n, _v in _comp_rows:
+                st.markdown(
+                    f"<div style='display:flex;justify-content:space-between;"
+                    f"padding:5px 0;border-bottom:1px solid #eef0f4;font-size:0.93rem;'>"
+                    f"<span>{_n}</span><span><b>{_v:.2f}</b></span></div>",
+                    unsafe_allow_html=True,
+                )
     else:
-        st.info("Selecciona al menos un alimento para ver su composición nutricional.")
+        st.info("Selecciona un alimento en la pestaña **Análisis** para ver el análisis nutricional.")
 
-    # === 4. Exportar a Excel ===
-    st.subheader("Exportar resumen a Excel")
+    # ── SECCIÓN 5: DECISIÓN NUTRICIONAL ───────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("✅ Decisión Nutricional")
 
-    perfil_df = pd.DataFrame([mascota])
-    energia_df_export = pd.DataFrame([{
-        "RER (kcal/día)": round(energia_basal, 2) if energia_basal else "-",
-        "MER (kcal/día)": round(mer_animal, 2) if mer_animal else "-",
-        "Factor de condición": factor_cond if mer_animal and energia_basal else "-",
-    }])
+    if _datos_completos:
+        _clase_dec = (
+            "low" if _cobertura3 < 90
+            else "adequate" if _cobertura3 <= 110
+            else "moderate" if _cobertura3 <= 130
+            else "high"
+        )
+        _colores_dec = {
+            "low": ("#2176FF", "#e8f0fe"),
+            "adequate": ("#52B788", "#e9f7f0"),
+            "moderate": ("#FFB703", "#fff8e1"),
+            "high": ("#F4845F", "#fdeee8"),
+        }
+        _color_border, _color_bg = _colores_dec[_clase_dec]
+        st.markdown(
+            f"<div style='background:{_color_bg};border-left:5px solid {_color_border};"
+            f"padding:14px 18px;border-radius:6px;margin-bottom:10px;'>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:{_color_border};'>{_resultado3}</div>"
+            f"<div style='font-size:0.95rem;margin-top:6px;'>{_interpretacion3}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("Complete el perfil de la mascota y el análisis del alimento para ver la decisión nutricional.")
 
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        perfil_df.to_excel(writer, sheet_name='Perfil Mascota', index=False)
-        energia_df_export.to_excel(writer, sheet_name='Requerimiento Energético', index=False)
-        if selected_alimentos and not comp_alimentos_df.empty:
-            comp_alimentos_df.reset_index().to_excel(writer, sheet_name='Alimentos Balanceados', index=False)
-    excel_data = output.getvalue()
+    # ── SECCIÓN 6: CANTIDAD RECOMENDADA ───────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("📊 Cantidad Recomendada")
 
-    st.download_button(
-        label="Descargar resumen en Excel",
-        data=excel_data,
-        file_name="Resumen_dieta_uywa.xlsx",
-        mime="application/vnd/openxmlformats-officedocument/spreadsheetml.sheet"
-    )
+    if _datos_completos and _me3 > 0:
+        _rng_min3 = _gramos_rec3 * 0.9
+        _rng_max3 = _gramos_rec3 * 1.1
+        _cq1, _cq2, _cq3 = st.columns(3)
+        with _cq1:
+            st.metric("📌 Gramos recomendados (g/día)", f"{_gramos_rec3:.0f}")
+        with _cq2:
+            _signo_g = "+" if _dif_g3 > 0 else ""
+            st.metric("📏 Diferencia vs evaluado (g)", f"{_signo_g}{_dif_g3:.0f}")
+        with _cq3:
+            st.metric("↔️ Rango aceptable (±10%)", f"{_rng_min3:.0f} – {_rng_max3:.0f} g")
+    else:
+        st.info("Completa el análisis de alimento para obtener la cantidad recomendada.")
+
+    # ── SECCIÓN 7: RECOMENDACIONES ────────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("💡 Recomendaciones")
+
+    if _recomendaciones3:
+        for _i, _rec in enumerate(_recomendaciones3, 1):
+            st.markdown(
+                f"<div style='padding:8px 12px 8px 32px;border-bottom:1px solid #eef0f4;"
+                f"position:relative;font-size:0.95rem;'>"
+                f"<span style='position:absolute;left:8px;color:#52B788;font-weight:bold;'>✓</span>"
+                f"{_rec}</div>",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("Las recomendaciones se generan automáticamente al completar el perfil.")
+
+    # ── SECCIÓN 8 & 9: EXPORTACIÓN ────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("📥 Exportar Informe")
+
+    _fecha3 = datetime.date.today()
+    _nombre_archivo3 = _nombre3.replace(" ", "_") if _nombre3 != "—" else "Mascota"
+
+    # Preparar datos para exportadores
+    _datos_energeticos3 = {
+        "edad": _edad3,
+        "peso": _peso3,
+        "bcs": _bcs3,
+        "estado_corporal": _estado_corp3,
+        "riesgo_nutricional": _riesgo3,
+        "condicion": _condicion3,
+        "rer": _rer3 or 0.0,
+        "mer_base": _mer_base3 or 0.0,
+        "diagnostico": _diagnostico3,
+    }
+    _rng_min_exp = _gramos_rec3 * 0.9 if _datos_completos else 0.0
+    _rng_max_exp = _gramos_rec3 * 1.1 if _datos_completos else 0.0
+
+    # Obtener energía desglosada del alimento para exportar
+    _food_eb3 = calculate_energy_breakdown(_food_data3) if _food_data3 else {}
+
+    _datos_alimento3 = {
+        "alimento": _food_name3 or "—",
+        "me": _me3,
+        "gramos": _gramos3,
+        "aporte": _aporte3,
+        "cobertura": _cobertura3,
+        "recomendados": _gramos_rec3,
+        "rango_min": _rng_min_exp,
+        "rango_max": _rng_max_exp,
+        "decision": _resultado3,
+        "interpretacion": _interpretacion3,
+        "pb": _food_data3.get("PB", 0) if _food_data3 else 0,
+        "ee": _food_data3.get("EE", 0) if _food_data3 else 0,
+        "ash": _food_data3.get("Ash", 0) if _food_data3 else 0,
+        "humidity": _food_data3.get("Humidity", 0) if _food_data3 else 0,
+        "fc": _food_data3.get("FC", 0) if _food_data3 else 0,
+        "ena": _food_ena3,
+        "ms": _food_energy3.get("MS", 0) if _food_energy3 else 0,
+        "ge": _food_eb3.get("GE", 0) if _food_eb3 else 0,
+        "de_pct": _food_energy3.get("DE_pct", 0) if _food_energy3 else 0,
+        "de": _food_energy3.get("DE", 0) if _food_energy3 else 0,
+    }
+
+    _col_xlsx, _col_html = st.columns(2)
+
+    with _col_xlsx:
+        try:
+            _xlsx_bytes = exportar_a_excel(
+                _mascota3, _datos_energeticos3, _datos_alimento3,
+                _fecha3, _mer_final3 or 0.0, _recomendaciones3
+            )
+            st.download_button(
+                label="📥 Descargar Informe (Excel)",
+                data=_xlsx_bytes,
+                file_name=f"UYWA_Informe_{_nombre_archivo3}_{_fecha3.strftime('%d%m%Y')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+        except Exception as _e:
+            st.error(f"Error al generar Excel: {_e}")
+
+    with _col_html:
+        try:
+            _html_str = exportar_a_html(
+                _mascota3, _datos_energeticos3, _datos_alimento3,
+                _mer_final3 or 0.0, _diagnostico3, _recomendaciones3
+            )
+            st.download_button(
+                label="📄 Descargar Informe (HTML)",
+                data=_html_str,
+                file_name=f"UYWA_Informe_{_nombre_archivo3}_{_fecha3.strftime('%d%m%Y')}.html",
+                mime="text/html",
+                use_container_width=True,
+            )
+        except Exception as _e:
+            st.error(f"Error al generar HTML: {_e}")
 
