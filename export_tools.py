@@ -333,25 +333,66 @@ def generar_uuid_paciente(nombre_especie):
 
 
 def crear_visita_dict(mascota, datos_energeticos, datos_alimento,
-                      mer_final, senior_applied, cob_pb, cob_ee):
+                      mer_final, senior_applied, cob_pb, cob_ee,
+                      recomendaciones=None, objetivo_nutricional=""):
     """
-    Crea diccionario con datos de 1 visita.
+    Crea diccionario con 35 campos para 1 visita.
     Estructura: 1 diccionario = 1 fila en VISITAS_SEGUIMIENTO.
+
+    Parámetros:
+        mascota (dict)              : Datos de la mascota (nombre, especie).
+        datos_energeticos (dict)    : Valores energéticos y diagnóstico.
+        datos_alimento (dict)       : Datos del alimento evaluado.
+        mer_final (float)           : MER final ajustado (kcal/día).
+        senior_applied (bool)       : Si se aplicó ajuste senior.
+        cob_pb (float|None)         : Cobertura proteína (%).
+        cob_ee (float|None)         : Cobertura grasa (%).
+        recomendaciones (list|None) : Lista de recomendaciones. Si None, lee de datos_energeticos.
+        objetivo_nutricional (str)  : Objetivo nutricional; se infiere del BCS si está vacío.
+
+    Retorna:
+        dict: 35 campos para la fila de VISITAS_SEGUIMIENTO.
     """
-    recomendaciones = datos_energeticos.get("recomendaciones", [])
+    if recomendaciones is None:
+        recomendaciones = datos_energeticos.get("recomendaciones", [])
+
+    ahora = datetime.now()
+    timestamp_iso = ahora.isoformat()
+    fecha_iso = ahora.strftime("%Y-%m-%d")
+
+    bcs = datos_energeticos.get("bcs", 5)
+    if objetivo_nutricional == "":
+        if bcs < 5:
+            objetivo_nutricional = "Recuperar"
+        elif bcs > 5:
+            objetivo_nutricional = "Reducir"
+        else:
+            objetivo_nutricional = "Mantener"
+
+    recomendaciones_str = (
+        " | ".join(recomendaciones)
+        if isinstance(recomendaciones, list)
+        else str(recomendaciones)
+    )
+
+    cobertura = _safe_float(datos_alimento.get("cobertura", 0))
+    decision = datos_alimento.get("decision", "Revisar")
+
     visita = {
         "id_visita": generar_id_visita(),
-        "fecha_visita": datetime.now().strftime("%Y-%m-%d"),
+        "timestamp_registro": timestamp_iso,
+        "fecha_visita": fecha_iso,
         "nombre_paciente": mascota.get("nombre", "—"),
         "especie": mascota.get("especie", "—").lower(),
-        "edad": _safe_float(datos_energeticos.get("edad", 0), 0),
-        "peso_kg": _safe_float(datos_energeticos.get("peso", 0), 0),
-        "bcs": datos_energeticos.get("bcs", 5),
+        "edad": round(_safe_float(datos_energeticos.get("edad", 0)), 1),
+        "peso_kg": round(_safe_float(datos_energeticos.get("peso", 0)), 1),
+        "bcs": int(bcs),
         "estado_corporal": datos_energeticos.get("estado_corporal", "—"),
         "riesgo_nutricional": datos_energeticos.get("riesgo_nutricional", "—"),
         "etapa_vida": datos_energeticos.get("etapa", "adulto").lower(),
         "condicion_fisiologica": datos_energeticos.get("condicion", "—"),
-        "ajuste_senior": "Sí" if senior_applied else "",
+        "ajuste_senior": bool(senior_applied),
+        "objetivo_nutricional": objetivo_nutricional,
         "rer_kcal_dia": round(_safe_float(datos_energeticos.get("rer", 0)), 1),
         "mer_base_kcal_dia": round(_safe_float(datos_energeticos.get("mer_base", 0)), 1),
         "mer_final_kcal_dia": round(_safe_float(mer_final), 1),
@@ -359,17 +400,22 @@ def crear_visita_dict(mascota, datos_energeticos, datos_alimento,
         "gramos_dia_evaluados": round(_safe_float(datos_alimento.get("gramos", 0)), 1),
         "me_kcal_100g": round(_safe_float(datos_alimento.get("me", 0)), 2),
         "energia_aportada_kcal_dia": round(_safe_float(datos_alimento.get("aporte", 0)), 1),
-        "cobertura_energia_pct": round(_safe_float(datos_alimento.get("cobertura", 0)), 1),
+        "cobertura_energia_pct": round(cobertura, 1),
         "gramos_recomendados_dia": round(_safe_float(datos_alimento.get("recomendados", 0)), 0),
         "diferencia_gramos_dia": round(
             _safe_float(datos_alimento.get("recomendados", 0)) - _safe_float(datos_alimento.get("gramos", 0)), 1
         ),
         "cobertura_proteina_pct": round(_safe_float(cob_pb), 1) if cob_pb is not None else "",
         "cobertura_grasa_pct": round(_safe_float(cob_ee), 1) if cob_ee is not None else "",
-        "resultado_nutricional": datos_alimento.get("decision", "—"),
+        "resultado_nutricional": decision,
+        "decision_clinica": f"Cobertura {cobertura:.1f}% - {decision}",
         "diagnostico_nutricional": datos_energeticos.get("diagnostico", "—"),
-        "recomendaciones": " | ".join(recomendaciones) if isinstance(recomendaciones, list) else str(recomendaciones),
+        "recomendaciones": recomendaciones_str,
         "observaciones": "",
+        "profesional_responsable": "",
+        "version_modelo": "v1.0",
+        "fuente_dato": "app",
+        "permitir_edicion": True,
     }
     return visita
 
@@ -378,14 +424,15 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
                                   mer_final, senior_applied, recomendaciones,
                                   nutrientes_ref, cob_pb, cob_ee):
     """
-    Genera archivo Excel con 5 hojas para seguimiento nutricional del paciente.
+    Genera archivo Excel con 6 hojas para seguimiento nutricional del paciente.
 
     Hojas:
-        1. RESUMEN_ACTUAL          - Referencia visual de la visita.
-        2. VISITAS_SEGUIMIENTO     - Base histórica (1 fila = 1 visita).
-        3. ANALISIS_ALIMENTO       - Composición proximal + NRC.
-        4. REQUERIMIENTOS_TECNICOS - Tabla referencia nutrientes.
-        5. METADATOS               - Versionado y trazabilidad.
+        1. RESUMEN_ACTUAL          - Visualización humana (NO para lectura automática).
+        2. VISITAS_SEGUIMIENTO     - Base histórica (1 fila = 1 visita, 35 columnas).
+        3. ANALISIS_ALIMENTO       - Composición proximal (14 columnas).
+        4. REQUERIMIENTOS_TECNICOS - Tabla referencia nutrientes (7 columnas).
+        5. METADATOS               - Trazabilidad y versioning (12 pares clave-valor).
+        6. CONFIG_APP              - Configuración de la app (4 pares clave-valor).
 
     Parámetros:
         mascota (dict)          : Datos de la mascota (nombre, especie).
@@ -414,6 +461,8 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
             "font_color": "white",
             "bold": True,
             "border": 1,
+            "align": "center",
+            "valign": "vcenter",
         })
 
         label_fmt = workbook.add_format({
@@ -431,15 +480,12 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
 
         resumen_labels = [
             "DATOS DEL PACIENTE",
-            "Nombre del paciente",
+            "Nombre",
             "Especie",
             "Edad",
             "Peso actual",
-            "Etapa de vida",
-            "Condición fisiológica",
             "BCS",
             "Estado corporal",
-            "Riesgo nutricional",
             "",
             "REQUERIMIENTOS ENERGÉTICOS",
             "RER",
@@ -448,7 +494,7 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
             "",
             "ALIMENTO EVALUADO",
             "Nombre alimento",
-            "Gramos/día evaluados",
+            "Gramos/día",
             "ME (kcal/100g)",
             "Energía aportada",
             "Cobertura energética",
@@ -465,11 +511,8 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
             mascota.get("especie", "—").capitalize(),
             f"{_safe_float(datos_energeticos.get('edad', 0)):.1f} años",
             f"{_safe_float(datos_energeticos.get('peso', 0)):.1f} kg",
-            datos_energeticos.get("etapa", "—").capitalize(),
-            datos_energeticos.get("condicion", "—"),
             f"{datos_energeticos.get('bcs', 5)}/9",
             datos_energeticos.get("estado_corporal", "—"),
-            datos_energeticos.get("riesgo_nutricional", "—"),
             "",
             "",
             f"{_safe_float(datos_energeticos.get('rer', 0)):.1f} kcal/día",
@@ -492,15 +535,16 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
         df_resumen = pd.DataFrame({"Parámetro": resumen_labels, "Valor": resumen_values})
         df_resumen.to_excel(writer, sheet_name="RESUMEN_ACTUAL", index=False)
         ws_resumen = writer.sheets["RESUMEN_ACTUAL"]
-        ws_resumen.set_column(0, 0, 30)
+        ws_resumen.set_column(0, 0, 35)
         ws_resumen.set_column(1, 1, 50)
         for col_idx, col_name in enumerate(df_resumen.columns):
             ws_resumen.write(0, col_idx, col_name, header_fmt)
 
-        # ── HOJA 2: VISITAS_SEGUIMIENTO ────────────────────────────────────
+        # ── HOJA 2: VISITAS_SEGUIMIENTO (35 columnas) ─────────────────────
         visita_actual = crear_visita_dict(
             mascota, datos_energeticos, datos_alimento,
-            mer_final, senior_applied, cob_pb, cob_ee
+            mer_final, senior_applied, cob_pb, cob_ee,
+            recomendaciones=recomendaciones,
         )
         df_visitas = pd.DataFrame([visita_actual])
         df_visitas.to_excel(writer, sheet_name="VISITAS_SEGUIMIENTO", index=False)
@@ -510,11 +554,14 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
         for col_idx, col_name in enumerate(df_visitas.columns):
             ws_visitas.write(0, col_idx, col_name, header_fmt)
 
-        # ── HOJA 3: ANALISIS_ALIMENTO ──────────────────────────────────────
+        # ── HOJA 3: ANALISIS_ALIMENTO (14 columnas + id_visita) ───────────
         def _or_empty(val):
             return val if val not in (None, 0, 0.0, "") else ""
 
+        id_visita_actual = visita_actual["id_visita"]
+
         alimento_data = {
+            "id_visita": [id_visita_actual],
             "alimento": [datos_alimento.get("alimento", "—")],
             "proteina_bruta_pct": [_or_empty(datos_alimento.get("pb"))],
             "grasa_ee_pct": [_or_empty(datos_alimento.get("ee"))],
@@ -524,7 +571,6 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
             "ena_pct": [_or_empty(datos_alimento.get("ena"))],
             "materia_seca_pct": [_or_empty(datos_alimento.get("ms"))],
             "energia_bruta_kcal_100g": [_or_empty(datos_alimento.get("ge"))],
-            "digestibilidad_pct": [_or_empty(datos_alimento.get("de_pct"))],
             "energia_digestible_kcal_100g": [_or_empty(datos_alimento.get("de"))],
             "energia_metabolizable_kcal_100g": [_or_empty(datos_alimento.get("me"))],
             "precio_unitario": [datos_alimento.get("precio", "")],
@@ -533,13 +579,13 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
         df_alimento = pd.DataFrame(alimento_data)
         df_alimento.to_excel(writer, sheet_name="ANALISIS_ALIMENTO", index=False)
         ws_alimento = writer.sheets["ANALISIS_ALIMENTO"]
-        ws_alimento.set_column(0, 0, 35)
+        ws_alimento.set_column(0, 0, 40)
         for col_idx in range(1, len(df_alimento.columns)):
             ws_alimento.set_column(col_idx, col_idx, 22)
         for col_idx, col_name in enumerate(df_alimento.columns):
             ws_alimento.write(0, col_idx, col_name, header_fmt)
 
-        # ── HOJA 4: REQUERIMIENTOS_TECNICOS ───────────────────────────────
+        # ── HOJA 4: REQUERIMIENTOS_TECNICOS (7 columnas) ──────────────────
         requisitos_rows = []
         try:
             nutrientes_dict = nutrientes_ref.get(etapa, {})
@@ -551,37 +597,43 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
                     "valor_maximo": valores.get("max", ""),
                     "especie": especie,
                     "etapa_vida": etapa,
+                    "fuente_modelo": "NRC 2006",
                 })
         except Exception as exc:
             logging.warning(f"Error al extraer requerimientos técnicos para {especie}/{etapa}: {exc}")
 
         df_requisitos = pd.DataFrame(
             requisitos_rows,
-            columns=["nutriente", "unidad", "valor_minimo", "valor_maximo", "especie", "etapa_vida"],
+            columns=["nutriente", "unidad", "valor_minimo", "valor_maximo",
+                     "especie", "etapa_vida", "fuente_modelo"],
         )
         df_requisitos.to_excel(writer, sheet_name="REQUERIMIENTOS_TECNICOS", index=False)
         ws_req = writer.sheets["REQUERIMIENTOS_TECNICOS"]
         for col_idx in range(len(df_requisitos.columns)):
-            ws_req.set_column(col_idx, col_idx, 25)
+            ws_req.set_column(col_idx, col_idx, 20)
         for col_idx, col_name in enumerate(df_requisitos.columns):
             ws_req.write(0, col_idx, col_name, header_fmt)
 
-        # ── HOJA 5: METADATOS ──────────────────────────────────────────────
+        # ── HOJA 5: METADATOS (12 pares clave-valor) ──────────────────────
         uuid_paciente = generar_uuid_paciente(
             f"{mascota.get('nombre', 'paciente')}_{especie}"
         )
         fecha_hoy = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        fecha_hoy_date = datetime.now().strftime("%Y-%m-%d")
 
         metadatos_labels = [
-            "INFORMACIÓN DEL ARCHIVO",
+            "METADATOS DEL ARCHIVO",
             "id_paciente",
             "nombre_paciente",
             "especie",
             "fecha_creacion_archivo",
             "fecha_ultima_actualizacion",
+            "ultima_visita_registrada",
+            "numero_visitas",
             "version_app",
             "version_modelo_energia",
             "fuente_modelo_energia",
+            "ultima_modificacion_por",
             "observacion_general",
         ]
         metadatos_values = [
@@ -591,19 +643,46 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
             especie,
             fecha_hoy,
             fecha_hoy,
+            fecha_hoy_date,
+            1,
             "1.0.0",
             "NRC v1",
             "National Research Council",
+            "Sistema UYWA",
             "",
         ]
 
         df_metadatos = pd.DataFrame({"Clave": metadatos_labels, "Valor": metadatos_values})
         df_metadatos.to_excel(writer, sheet_name="METADATOS", index=False)
         ws_meta = writer.sheets["METADATOS"]
-        ws_meta.set_column(0, 0, 30)
-        ws_meta.set_column(1, 1, 45)
+        ws_meta.set_column(0, 0, 35)
+        ws_meta.set_column(1, 1, 50)
         for col_idx, col_name in enumerate(df_metadatos.columns):
             ws_meta.write(0, col_idx, col_name, header_fmt)
+
+        # ── HOJA 6: CONFIG_APP ─────────────────────────────────────────────
+        config_labels = [
+            "CONFIGURACIÓN DE LA APP",
+            "usar_ajuste_senior",
+            "usar_ajuste_bcs",
+            "umbral_cobertura_minima",
+            "umbral_cobertura_maxima",
+        ]
+        config_values = [
+            "",
+            True,
+            True,
+            90,
+            110,
+        ]
+
+        df_config = pd.DataFrame({"Clave": config_labels, "Valor": config_values})
+        df_config.to_excel(writer, sheet_name="CONFIG_APP", index=False)
+        ws_config = writer.sheets["CONFIG_APP"]
+        ws_config.set_column(0, 0, 35)
+        ws_config.set_column(1, 1, 20)
+        for col_idx, col_name in enumerate(df_config.columns):
+            ws_config.write(0, col_idx, col_name, header_fmt)
 
     return output.getvalue()
 
