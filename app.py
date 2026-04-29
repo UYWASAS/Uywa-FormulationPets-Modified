@@ -48,6 +48,107 @@ SENIOR_FACTOR = 0.85
 # Paleta de colores para gráficos radar
 RADAR_CHART_COLORS = ["#2176FF", "#FFB703", "#52B788", "#F4845F", "#8E9AAF", "#E74C3C"]
 
+# ======================== CONSTANTES DE DIAGNÓSTICO NUTRICIONAL ========================
+RIESGO_COLORES = {
+    "Bajo": "#52B788",
+    "Moderado": "#FFB703",
+    "Alto": "#F4845F",
+}
+
+RIESGO_ICONS = {
+    "Bajo": "🟢",
+    "Moderado": "🟠",
+    "Alto": "🔴",
+}
+
+
+def get_estado_corporal(bcs):
+    """Devuelve el estado corporal textual según el BCS (escala 1–9)."""
+    if 1 <= bcs <= 3:
+        return "Bajo peso"
+    if bcs == 4:
+        return "Ligeramente bajo"
+    if bcs == 5:
+        return "Condición ideal"
+    if bcs == 6:
+        return "Ligeramente sobrepeso"
+    if bcs == 7:
+        return "Sobrepeso"
+    if 8 <= bcs <= 9:
+        return "Obesidad"
+    return "Desconocido"
+
+
+def calcular_riesgo_nutricional(bcs, edad, condicion, etapa, aplicar_senior):
+    """Calcula el nivel de riesgo nutricional según los parámetros del perfil."""
+    if bcs == 5:
+        riesgo = "Bajo"
+    elif bcs in [4, 6]:
+        riesgo = "Moderado"
+    else:
+        riesgo = "Alto"
+
+    if aplicar_senior and bcs >= 6:
+        riesgo = "Alto"
+
+    if condicion == "Castrado" and bcs >= 6:
+        riesgo = "Alto"
+
+    if etapa == "cachorro" and condicion == "Destete a 4 meses":
+        riesgo = "Moderado"
+
+    if condicion in ["Gestación (Segunda mitad)", "Lactancia"]:
+        riesgo = "Alto"
+
+    return riesgo
+
+
+def calcular_prioridad_nutricional(bcs, etapa, condicion, edad):
+    """Devuelve (prioridad, recomendación) según el perfil de la mascota."""
+    if etapa == "cachorro":
+        return "Sostener crecimiento", "Maximizar aporte nutricional balanceado"
+
+    if condicion in ["Gestación (Segunda mitad)", "Lactancia"]:
+        return "Cubrir alta demanda energética", "Aumentar frecuencia de alimentación y calidad"
+
+    if bcs < 5:
+        return "Recuperar condición corporal", "Aumentar gradualmente el aporte energético"
+
+    if bcs > 5:
+        return "Controlar peso y energía", "Reducir calorías y aumentar monitoreo"
+
+    # BCS == 5
+    if edad >= 7:
+        return "Mantener masa magra y prevenir sobrepeso", "Monitoreo frecuente cada 4–8 semanas"
+
+    return "Mantener condición corporal", "Monitoreo regular cada 2–4 semanas"
+
+
+def generar_interpretacion_diagnostico(nombre, bcs, estado, mer_final,
+                                       prioridad, condicion, edad, aplicar_senior):
+    """Genera un párrafo con el diagnóstico nutricional automático."""
+    texto = f"{nombre} presenta condición corporal {estado.lower()} (BCS {bcs}/9). "
+    texto += f"Su requerimiento energético final estimado es {mer_final:.0f} kcal/día. "
+
+    if bcs < 5:
+        texto += ("La prioridad nutricional es recuperar condición corporal. "
+                  "Se recomienda aumentar gradualmente el aporte energético y monitorear peso cada 2–3 semanas.")
+    elif bcs > 5:
+        texto += ("La prioridad nutricional es controlar peso y energía. "
+                  "Se recomienda reducir calorías gradualmente y monitorear peso cada 1–2 semanas.")
+    else:
+        if edad >= 7 and aplicar_senior:
+            texto += ("Como animal senior, la prioridad es mantener masa magra y prevenir sobrepeso. "
+                      "Se recomienda monitoreo frecuente cada 4–8 semanas.")
+        elif condicion in ["Gestación (Segunda mitad)", "Lactancia"]:
+            texto += ("La prioridad nutricional es cubrir la alta demanda energética. "
+                      "Se recomienda aumentar frecuencia de alimentación y monitoreo semanal.")
+        else:
+            texto += ("La prioridad es mantener la condición corporal actual. "
+                      "Se recomienda monitoreo regular cada 2–4 semanas.")
+
+    return texto
+
 # ======================== DEFINICIÓN GLOBAL DE FACTORES ========================
 FACTORES_CONDICION = {
     "perro": {
@@ -418,6 +519,51 @@ with tabs[0]:
         .energy-table tr:nth-child(odd), .nutrients-table tr:nth-child(odd) {
             background-color: #ffffff;
         }
+        /* Card de diagnóstico nutricional */
+        .diagnostic-card {
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin: 20px 0;
+            border-left: 6px solid;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .diagnostic-card.low-risk {
+            background: rgba(82, 183, 136, 0.08);
+            border-left-color: #52B788;
+            color: #1b7a53;
+        }
+        .diagnostic-card.moderate-risk {
+            background: rgba(255, 183, 3, 0.08);
+            border-left-color: #FFB703;
+            color: #92400e;
+        }
+        .diagnostic-card.high-risk {
+            background: rgba(244, 132, 95, 0.08);
+            border-left-color: #F4845F;
+            color: #933b1a;
+        }
+        .diagnostic-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .diagnostic-state {
+            font-size: 14px;
+            margin-bottom: 6px;
+            opacity: 0.9;
+        }
+        .diagnostic-priority {
+            font-size: 14px;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+        .diagnostic-text {
+            font-size: 15px;
+            line-height: 1.5;
+            margin-top: 16px;
+            font-style: italic;
+            opacity: 0.95;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -646,66 +792,94 @@ with tabs[0]:
                 unsafe_allow_html=True,
             )
 
-        # --- Sección de Requerimientos Energéticos ---
-        st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-        st.markdown("**🔋 Requerimientos Energéticos**")
+    # ===================== DIAGNÓSTICO NUTRICIONAL INICIAL (ANCHO COMPLETO) =====================
+    st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
+    st.markdown("### 🩺 Diagnóstico Nutricional Inicial")
 
-        ec1, ec2, ec3, ec4 = st.columns(4)
-        with ec1:
-            st.markdown(
-                f"""
-                <div class="energy-card">
-                    <div class="card-label">RER Actual</div>
-                    <div class="card-value">{fmt2(energia_basal_actual)}</div>
-                    <div style="font-size:11px; opacity:0.85;">kcal/día</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with ec2:
-            st.markdown(
-                f"""
-                <div class="energy-card green">
-                    <div class="card-label">MER Adulto/Fisiológico</div>
-                    <div class="card-value">{fmt2(mer_actual)}</div>
-                    <div style="font-size:11px; opacity:0.85;">kcal/día</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with ec3:
-            st.markdown(
-                f"""
-                <div class="energy-card orange">
-                    <div class="card-label">MER Ajustado Final</div>
-                    <div class="card-value">{fmt2(mer_final)}</div>
-                    <div style="font-size:11px; opacity:0.85;">kcal/día</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with ec4:
-            _senior_card_class = "purple" if senior_aplicado else "purple-inactive"
-            _senior_label = "×0.85 aplicado" if senior_aplicado else "No aplicado"
-            st.markdown(
-                f"""
-                <div class="energy-card {_senior_card_class}">
-                    <div class="card-label">Factor Condición Final</div>
-                    <div class="card-value">{factor_condicion_val}</div>
-                    <div style="font-size:11px; opacity:0.85;">Senior: {_senior_label}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    _estado_corporal = get_estado_corporal(bcs)
+    _riesgo = calcular_riesgo_nutricional(bcs, edad, condicion, etapa, aplicar_ajuste_senior)
+    _prioridad, _recomendacion = calcular_prioridad_nutricional(bcs, etapa, condicion, edad)
+    _interpretacion = generar_interpretacion_diagnostico(
+        nombre_display, bcs, _estado_corporal, mer_final,
+        _prioridad, condicion, edad, aplicar_ajuste_senior
+    )
 
-        # Aviso cuando ajuste senior no se aplica por BCS ≠ 5
-        if aplicar_ajuste_senior and not senior_aplicado and etapa == "adulto" and especie in ("perro", "gato"):
-            st.warning("⚠️ Ajuste senior no aplicado porque el requerimiento fue priorizado por corrección de condición corporal.")
+    _riesgo_class = {"Bajo": "low-risk", "Moderado": "moderate-risk", "Alto": "high-risk"}.get(_riesgo, "low-risk")
+    _riesgo_icon = RIESGO_ICONS.get(_riesgo, "🟢")
 
-        # Botón de edición
-        st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
-        if st.button("✏️ Editar perfil", key="btn_editar_perfil_shortcut"):
-            st.info("Usa el panel **✏️ Editar Perfil de la Mascota** en la parte superior para modificar los datos.")
+    st.markdown(
+        f"""
+        <div class="diagnostic-card {_riesgo_class}">
+            <div class="diagnostic-title">{_riesgo_icon} RIESGO {_riesgo.upper()}</div>
+            <div class="diagnostic-state">Estado corporal: {_estado_corporal} (BCS {bcs}/9)</div>
+            <div class="diagnostic-priority">🎯 Prioridad: {_prioridad}</div>
+            <div class="diagnostic-priority" style="font-weight:400;">💡 {_recomendacion}</div>
+            <div class="diagnostic-text">"{_interpretacion}"</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ===================== SECCIÓN ENERGÍA (ANCHO COMPLETO) =====================
+    st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
+    st.markdown("**🔋 Requerimientos Energéticos**")
+
+    ec1, ec2, ec3, ec4 = st.columns(4)
+    with ec1:
+        st.markdown(
+            f"""
+            <div class="energy-card">
+                <div class="card-label">RER Actual</div>
+                <div class="card-value">{fmt2(energia_basal_actual)}</div>
+                <div style="font-size:11px; opacity:0.85;">kcal/día</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with ec2:
+        st.markdown(
+            f"""
+            <div class="energy-card green">
+                <div class="card-label">MER Adulto/Fisiológico</div>
+                <div class="card-value">{fmt2(mer_actual)}</div>
+                <div style="font-size:11px; opacity:0.85;">kcal/día</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with ec3:
+        st.markdown(
+            f"""
+            <div class="energy-card orange">
+                <div class="card-label">MER Ajustado Final</div>
+                <div class="card-value">{fmt2(mer_final)}</div>
+                <div style="font-size:11px; opacity:0.85;">kcal/día</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with ec4:
+        _senior_card_class = "purple" if senior_aplicado else "purple-inactive"
+        _senior_label = "×0.85 aplicado" if senior_aplicado else "No aplicado"
+        st.markdown(
+            f"""
+            <div class="energy-card {_senior_card_class}">
+                <div class="card-label">Factor Condición Final</div>
+                <div class="card-value">{factor_condicion_val}</div>
+                <div style="font-size:11px; opacity:0.85;">Senior: {_senior_label}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # Aviso cuando ajuste senior no se aplica por BCS ≠ 5
+    if aplicar_ajuste_senior and not senior_aplicado and etapa == "adulto" and especie in ("perro", "gato"):
+        st.warning("⚠️ Ajuste senior no aplicado porque el requerimiento fue priorizado por corrección de condición corporal.")
+
+    # Botón de edición
+    st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
+    if st.button("✏️ Editar perfil", key="btn_editar_perfil_shortcut"):
+        st.info("Usa el panel **✏️ Editar Perfil de la Mascota** en la parte superior para modificar los datos.")
 
     # ===================== TABLAS DETALLADAS (ANCHO COMPLETO) =====================
     try:
@@ -771,11 +945,13 @@ with tabs[0]:
         df_nutrientes_ajustados = pd.DataFrame(requerimientos_ajustados)
         st.session_state["tabla_requerimientos_base"] = df_nutrientes_ajustados.copy()
 
-        html_nutrientes = "<table class='nutrients-table'><thead><tr><th>Nutriente</th><th>Min Ajustado</th><th>Max Ajustado</th><th>Unidad</th></tr></thead><tbody>"
-        for req in requerimientos_ajustados:
-            html_nutrientes += f"<tr><td>{req['Nutriente']}</td><td>{req['Min Ajustado']}</td><td>{req['Max Ajustado']}</td><td>{req['Unidad']}</td></tr>"
-        html_nutrientes += "</tbody></table>"
-        st.markdown(html_nutrientes, unsafe_allow_html=True)
+        with st.expander("📋 Ver requerimientos nutricionales detallados del paciente", expanded=False):
+            st.markdown("<br>", unsafe_allow_html=True)
+            html_nutrientes = "<table class='nutrients-table'><thead><tr><th>Nutriente</th><th>Min Ajustado</th><th>Max Ajustado</th><th>Unidad</th></tr></thead><tbody>"
+            for req in requerimientos_ajustados:
+                html_nutrientes += f"<tr><td>{req['Nutriente']}</td><td>{req['Min Ajustado']}</td><td>{req['Max Ajustado']}</td><td>{req['Unidad']}</td></tr>"
+            html_nutrientes += "</tbody></table>"
+            st.markdown(html_nutrientes, unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Error en cálculos y ajustes: {str(e)}")
