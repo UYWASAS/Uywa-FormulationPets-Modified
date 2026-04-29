@@ -1446,16 +1446,17 @@ with tabs[2]:
 
     # Texto explicativo antes de los botones
     st.info(
-        "**📌 IMPORTANTE - Dos formatos disponibles:**\n\n"
-        "1️⃣ **Excel (.xlsx) - Ficha Maestra de Seguimiento**\n"
-        "- Archivo base que funciona como historial del paciente\n"
-        "- Consérvelo para llevar un registro entre visitas\n"
-        "- Permite comparar evolución: peso, BCS, requerimientos energéticos, alimento evaluado, cobertura nutricional\n"
-        "- Se acumula histórico de visitas para tomar decisiones clínicas\n\n"
-        "2️⃣ **HTML (.html) - Informe Visual de Hoy**\n"
-        "- Resumen formal y profesional de la visita actual\n"
-        "- Apto para imprimir o enviar al cliente\n"
-        "- Información visual clara"
+        "📌 **Este archivo Excel funciona como ficha maestra de seguimiento nutricional del paciente.**\n\n"
+        "✅ Puede editarse manualmente sin romper estructura\n"
+        "✅ Cárguelo en futuras visitas para analizar evolución\n"
+        "✅ Permite comparar: peso, BCS, requerimientos energéticos, alimento evaluado, cobertura nutricional\n\n"
+        "**Estructura del archivo:**\n"
+        "- 🔍 RESUMEN_ACTUAL: Visualización clara de hoy\n"
+        "- 📊 VISITAS_SEGUIMIENTO: Base de datos histórica\n"
+        "- 🍽️ ANALISIS_ALIMENTO: Composición nutricional\n"
+        "- 📋 REQUERIMIENTOS_TECNICOS: Referencias NRC\n"
+        "- 🏷️ METADATOS: Versionado y trazabilidad\n"
+        "- ⚙️ CONFIG_APP: Configuración guardada"
     )
 
     _col_xlsx, _col_html = st.columns(2)
