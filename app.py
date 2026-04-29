@@ -185,6 +185,26 @@ FACTORES_CONDICION = {
     },
 }
 
+# Set of all gestación condition labels (used for BCS logic and descriptions)
+CONDICIONES_GESTACION = {
+    "Gestación (Primera mitad)",
+    "Gestación (Segunda mitad)",
+    "Gestación (Inicio)",
+    "Gestación (Final)",
+}
+
+# Gestación conditions corresponding to early phase (first half / inicio)
+CONDICIONES_GESTACION_INICIAL = {
+    "Gestación (Primera mitad)",
+    "Gestación (Inicio)",
+}
+
+# Gestación conditions corresponding to late phase (second half / final)
+CONDICIONES_GESTACION_FINAL = {
+    "Gestación (Segunda mitad)",
+    "Gestación (Final)",
+}
+
 # ======================== BLOQUE 2: ESTILO Y LOGO CON BARRA LATERAL ========================
 st.set_page_config(page_title="Formulador UYWA Premium", layout="wide")
 
@@ -685,7 +705,7 @@ with tabs[0]:
         factores_bcs = {6: 0.9, 7: 0.8, 8: 0.7, 9: 0.6, 4: 1.1, 3: 1.2, 2: 1.3, 1: 1.4}
 
         # Determine if condition is gestación
-        es_gestacion = "gestaci" in condicion.lower()
+        es_gestacion = condicion in CONDICIONES_GESTACION
 
         if es_gestacion and not bcs_disabled:
             if bcs <= 3 or bcs >= 7:
@@ -916,9 +936,9 @@ with tabs[0]:
     # ===================== TABLAS DETALLADAS (ANCHO COMPLETO) =====================
     try:
         # Descripción condicional para MER Actual según gestación
-        if "primera mitad" in condicion.lower() or "inicio" in condicion.lower():
+        if condicion in CONDICIONES_GESTACION_INICIAL:
             _desc_mer_actual = "Incremento energético asociado al desarrollo embrionario inicial y adaptación metabólica materna."
-        elif "segunda mitad" in condicion.lower() or "final" in condicion.lower():
+        elif condicion in CONDICIONES_GESTACION_FINAL:
             _desc_mer_actual = "Incremento energético elevado por crecimiento fetal acelerado y preparación para la lactancia."
         else:
             _desc_mer_actual = "Energía diaria necesaria según la condición productiva y fisiológica."
