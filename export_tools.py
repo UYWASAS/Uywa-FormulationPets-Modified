@@ -328,7 +328,8 @@ def generar_id_visita():
 def generar_uuid_paciente(nombre_especie):
     """Genera UUID determinístico para el paciente (mismo para todas sus visitas)."""
     key = str(nombre_especie).lower()
-    return str(uuid.uuid5(uuid.NAMESPACE_DNS, key))
+    # NAMESPACE_OID is appropriate for application-specific non-DNS identifiers
+    return str(uuid.uuid5(uuid.NAMESPACE_OID, key))
 
 
 def crear_visita_dict(mascota, datos_energeticos, datos_alimento,
@@ -552,7 +553,7 @@ def exportar_ficha_maestra_excel(mascota, datos_energeticos, datos_alimento,
                     "etapa_vida": etapa,
                 })
         except Exception as exc:
-            logging.warning(f"Error al extraer requerimientos técnicos: {exc}")
+            logging.warning(f"Error al extraer requerimientos técnicos para {especie}/{etapa}: {exc}")
 
         df_requisitos = pd.DataFrame(
             requisitos_rows,

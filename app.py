@@ -1449,7 +1449,7 @@ with tabs[2]:
         "**📌 IMPORTANTE - Dos formatos disponibles:**\n\n"
         "1️⃣ **Excel (.xlsx) - Ficha Maestra de Seguimiento**\n"
         "- Archivo base que funciona como historial del paciente\n"
-        "- Guárdelo y cárguelo en futuras visitas\n"
+        "- Consérvelo para llevar un registro entre visitas\n"
         "- Permite comparar evolución: peso, BCS, requerimientos energéticos, alimento evaluado, cobertura nutricional\n"
         "- Se acumula histórico de visitas para tomar decisiones clínicas\n\n"
         "2️⃣ **HTML (.html) - Informe Visual de Hoy**\n"
