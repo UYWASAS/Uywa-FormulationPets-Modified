@@ -72,8 +72,8 @@ def calcular_mer(especie, condicion, peso, bcs=None):
         "adulto_entero": 1.8,
         "cachorro_menor4m": 3.0,
         "cachorro_5m_adulto": 2.0,
-        "gestacion_primera_mitad": 1.8,
-        "gestacion_segunda_mitad": 2.0,
+        "gestacion_primera_mitad": 1.2,
+        "gestacion_segunda_mitad": 1.6,
         "lactancia": 4.0,
     }
 
