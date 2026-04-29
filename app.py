@@ -42,6 +42,9 @@ import io
 # Umbral de cobertura energética para alertas visuales (%)
 ENERGY_COVERAGE_THRESHOLD = 110
 
+# Factor de ajuste energético para mascotas adultas senior
+SENIOR_FACTOR = 0.85
+
 # Paleta de colores para gráficos radar
 RADAR_CHART_COLORS = ["#2176FF", "#FFB703", "#52B788", "#F4845F", "#8E9AAF", "#E74C3C"]
 
@@ -376,6 +379,14 @@ with tabs[0]:
             background: linear-gradient(135deg, #f4845f 0%, #d4603a 100%);
             box-shadow: 0 4px 14px rgba(244,132,95,0.3);
         }
+        .energy-card.purple {
+            background: linear-gradient(135deg, #8e44ad 0%, #6c3483 100%);
+            box-shadow: 0 4px 14px rgba(142,68,173,0.3);
+        }
+        .energy-card.purple-inactive {
+            background: linear-gradient(135deg, #aab0c0 0%, #8e9aaf 100%);
+            box-shadow: 0 4px 14px rgba(142,154,175,0.25);
+        }
         /* Sección separadora */
         .section-divider {
             border: none;
@@ -445,6 +456,26 @@ with tabs[0]:
         bcs_val = max(1, min(9, int(safe_float(mascota.get("bcs", 5), 5))))
         bcs = st.slider("Condición Corporal (BCS 1–9)", min_value=1, max_value=9, value=bcs_val, key="bcs_mascota", disabled=bcs_disabled)
 
+        # Ajuste Senior: visible solo para perro/gato adulto
+        _etapa_form = st.session_state.get("etapa_mascota", mascota.get("etapa", "adulto"))
+        _especie_form = st.session_state.get("especie_mascota", mascota.get("especie", "perro"))
+        _edad_form = safe_float(st.session_state.get("edad_mascota", mascota.get("edad", 1.0)), 1.0)
+        if _etapa_form == "adulto" and _especie_form in ("perro", "gato"):
+            _stored_senior = mascota.get("aplicar_ajuste_senior")
+            _senior_default = bool(_stored_senior) if _stored_senior is not None else (_edad_form >= 7)
+            aplicar_ajuste_senior_form = st.checkbox(
+                "👴 Aplicar ajuste energético Senior (-15%)",
+                value=_senior_default,
+                key="aplicar_ajuste_senior_mascota",
+                help="Reduce el MER en un 15% para mascotas adultas senior. Se aplica solo cuando la condición corporal es ideal (BCS = 5).",
+            )
+            if _edad_form >= 7:
+                st.info("ℹ️ Recomendado para mascota mayor de 7 años")
+        else:
+            aplicar_ajuste_senior_form = False
+            if "aplicar_ajuste_senior_mascota" in st.session_state:
+                del st.session_state["aplicar_ajuste_senior_mascota"]
+
         # Foto de la mascota en el formulario
         foto_upload = st.file_uploader("Foto de la mascota (opcional)", type=["png", "jpg", "jpeg"], key="foto_mascota_upload")
         if foto_upload is not None:
@@ -466,6 +497,7 @@ with tabs[0]:
                 "etapa": st.session_state["etapa_mascota"].lower(),
                 "condicion": condicion,
                 "bcs": st.session_state.get("bcs_mascota", 5),
+                "aplicar_ajuste_senior": st.session_state.get("aplicar_ajuste_senior_mascota", False),
             }
             profile["mascota"] = mascota_actualizada
             update_and_save_profile(profile)
@@ -480,7 +512,16 @@ with tabs[0]:
     condicion = st.session_state.get("condicion_mascota", mascota.get("condicion", "Castrado"))
     bcs = max(1, min(9, int(safe_float(st.session_state.get("bcs_mascota", mascota.get("bcs", 5)), 5))))
     peso = max(0.1, safe_float(st.session_state.get("peso_mascota", mascota.get("peso", 12.0)), 12.0))
+    edad = safe_float(st.session_state.get("edad_mascota", mascota.get("edad", 1.0)), 1.0)
     bcs_disabled = etapa == "cachorro" and condicion == "Destete a 4 meses"
+
+    # Leer ajuste senior: desde session_state (widget) o desde perfil guardado
+    if etapa == "adulto" and especie in ("perro", "gato"):
+        _stored_senior = mascota.get("aplicar_ajuste_senior")
+        _senior_profile_default = bool(_stored_senior) if _stored_senior is not None else (edad >= 7)
+        aplicar_ajuste_senior = bool(st.session_state.get("aplicar_ajuste_senior_mascota", _senior_profile_default))
+    else:
+        aplicar_ajuste_senior = False
 
     # --- Cálculo del RER y MER (necesario antes del layout) ---
     try:
@@ -496,6 +537,15 @@ with tabs[0]:
         energia_basal_objetivo = calcular_rer(peso_objetivo) if bcs != 5 and not bcs_disabled else "-"
         mer_final = energia_basal_objetivo * factor_fisiologico if bcs != 5 and not bcs_disabled else mer_actual
         factor_condicion_val = round(mer_final / energia_basal_actual, 2) if energia_basal_actual > 1e-6 else "-"
+
+        # --- Ajuste senior (paso final, después de todos los cálculos de BCS) ---
+        senior_aplicado = False
+        if (etapa == "adulto"
+                and aplicar_ajuste_senior
+                and bcs == 5
+                and not bcs_disabled):
+            mer_final = mer_final * SENIOR_FACTOR
+            senior_aplicado = True
 
         st.session_state["energia_actual"] = mer_final
 
@@ -600,12 +650,12 @@ with tabs[0]:
         st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
         st.markdown("**🔋 Requerimientos Energéticos**")
 
-        ec1, ec2, ec3 = st.columns(3)
+        ec1, ec2, ec3, ec4 = st.columns(4)
         with ec1:
             st.markdown(
                 f"""
                 <div class="energy-card">
-                    <div class="card-label">RER (Reposo)</div>
+                    <div class="card-label">RER Actual</div>
                     <div class="card-value">{fmt2(energia_basal_actual)}</div>
                     <div style="font-size:11px; opacity:0.85;">kcal/día</div>
                 </div>
@@ -616,8 +666,8 @@ with tabs[0]:
             st.markdown(
                 f"""
                 <div class="energy-card green">
-                    <div class="card-label">MER (Diario)</div>
-                    <div class="card-value">{fmt2(mer_final)}</div>
+                    <div class="card-label">MER Adulto/Fisiológico</div>
+                    <div class="card-value">{fmt2(mer_actual)}</div>
                     <div style="font-size:11px; opacity:0.85;">kcal/día</div>
                 </div>
                 """,
@@ -627,13 +677,30 @@ with tabs[0]:
             st.markdown(
                 f"""
                 <div class="energy-card orange">
-                    <div class="card-label">Factor Condición</div>
-                    <div class="card-value">{factor_condicion_val}</div>
-                    <div style="font-size:11px; opacity:0.85;">MER / RER</div>
+                    <div class="card-label">MER Ajustado Final</div>
+                    <div class="card-value">{fmt2(mer_final)}</div>
+                    <div style="font-size:11px; opacity:0.85;">kcal/día</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+        with ec4:
+            _senior_card_class = "purple" if senior_aplicado else "purple-inactive"
+            _senior_label = "×0.85 aplicado" if senior_aplicado else "No aplicado"
+            st.markdown(
+                f"""
+                <div class="energy-card {_senior_card_class}">
+                    <div class="card-label">Factor Condición Final</div>
+                    <div class="card-value">{factor_condicion_val}</div>
+                    <div style="font-size:11px; opacity:0.85;">Senior: {_senior_label}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        # Aviso cuando ajuste senior no se aplica por BCS ≠ 5
+        if aplicar_ajuste_senior and not senior_aplicado and etapa == "adulto" and especie in ("perro", "gato"):
+            st.warning("⚠️ Ajuste senior no aplicado porque el requerimiento fue priorizado por corrección de condición corporal.")
 
         # Botón de edición
         st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
@@ -643,11 +710,13 @@ with tabs[0]:
     # ===================== TABLAS DETALLADAS (ANCHO COMPLETO) =====================
     try:
         # Tabla de energías calculadas
+        _senior_valor = "Aplicado: ×0.85" if senior_aplicado else "No aplicado"
         energia_data = [
             {"Tipo": "RER Actual", "Valor": f"{fmt2(energia_basal_actual)} kcal/día", "Descripción": "Energía necesaria en reposo para mantener funciones básicas como respirar y digerir."},
             {"Tipo": "MER Actual (RER × Factor Fisiológico)", "Valor": f"{fmt2(mer_actual)} kcal/día", "Descripción": "Energía diaria necesaria según la condición productiva y fisiológica."},
             {"Tipo": "Peso Objetivo", "Valor": f"{fmt2(peso_objetivo)} kg" if peso_objetivo != "-" else "-", "Descripción": "Peso estimado para ajustar según la condición corporal (BCS)."},
             {"Tipo": "RER Objetivo", "Valor": f"{fmt2(energia_basal_objetivo)} kcal/día" if energia_basal_objetivo != "-" else "-", "Descripción": "Energía en reposo recalculada con el peso objetivo."},
+            {"Tipo": "Ajuste senior", "Valor": _senior_valor, "Descripción": "Corrección energética opcional (-15%, ×0.85) para animales adultos senior (7+ años), usada solo cuando la condición corporal es ideal."},
             {"Tipo": "MER Ajustada Final", "Valor": f"{fmt2(mer_final)} kcal/día", "Descripción": "Energía total diaria necesaria tras ajustes por BCS y condición."},
         ]
 
