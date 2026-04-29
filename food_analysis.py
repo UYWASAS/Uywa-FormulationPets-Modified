@@ -119,19 +119,27 @@ def plot_macronutrients_pie(food_name, food_data):
             marker=dict(colors=colors),
             hole=0.4,
             textinfo="label+percent",
+            textfont=dict(size=14),
             hovertemplate="<b>%{label}</b>: %{value:.2f}%<extra></extra>",
         )
     )
     fig.update_layout(
         title=dict(
             text=f"Distribución Composicional — {food_name}",
-            font=dict(size=16, family="Montserrat, sans-serif"),
+            font=dict(size=20, family="Montserrat, sans-serif"),
         ),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
-        height=420,
-        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-        margin=dict(t=60, b=100, l=20, r=20),
+        height=550,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=-0.25,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=13),
+        ),
+        margin=dict(t=70, b=110, l=20, r=20),
     )
     return fig
 
