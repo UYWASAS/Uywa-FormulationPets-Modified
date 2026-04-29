@@ -708,7 +708,11 @@ with tabs[0]:
         es_gestacion = condicion in CONDICIONES_GESTACION
 
         if es_gestacion and not bcs_disabled:
-            if bcs <= 3 or bcs >= 7:
+            # For gestating animals, BCS adjustment is only applied at extreme values (≤3 or ≥7).
+            # BCS 4–6 is considered an acceptable range for a gestante; no adjustment is needed
+            # because moderate variation in body condition is normal during pregnancy.
+            bcs_gestacion_extremo = bcs <= 3 or bcs >= 7
+            if bcs_gestacion_extremo:
                 # BCS extreme: apply adjustment
                 peso_objetivo = peso * factores_bcs.get(bcs, 1.0)
                 energia_basal_objetivo = calcular_rer(peso_objetivo)
@@ -722,10 +726,12 @@ with tabs[0]:
             peso_objetivo = peso * factores_bcs.get(bcs, 1.0)
             energia_basal_objetivo = calcular_rer(peso_objetivo)
             mer_final = energia_basal_objetivo * factor_fisiologico
+            bcs_gestacion_extremo = False
         else:
             peso_objetivo = "-"
             energia_basal_objetivo = "-"
             mer_final = mer_actual
+            bcs_gestacion_extremo = False
         factor_condicion_val = round(mer_final / energia_basal_actual, 2) if energia_basal_actual > 1e-6 else "-"
 
         # --- Ajuste senior (paso final, después de todos los cálculos de BCS) ---
@@ -922,10 +928,10 @@ with tabs[0]:
 
     # Mensajes informativos para gestación
     if es_gestacion and not bcs_disabled:
-        if 4 <= bcs <= 6:
+        if not bcs_gestacion_extremo:
             st.info("ℹ️ Ajuste BCS no aplicado: La gestante se encuentra en condición corporal aceptable. "
                     "El requerimiento se basa únicamente en el factor de gestación.")
-        elif bcs <= 3 or bcs >= 7:
+        else:
             st.warning("⚠️ Condición corporal fuera de rango ideal. Se aplicará corrección adicional por BCS.")
 
     # Botón de edición
