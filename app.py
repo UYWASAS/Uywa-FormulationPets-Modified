@@ -46,6 +46,10 @@ from export_tools import (
     generar_decision_resumen,
     exportar_a_excel,
     exportar_a_html,
+    exportar_ficha_maestra_excel,
+    crear_visita_dict,
+    generar_id_visita,
+    generar_uuid_paciente,
 )
 
 # Umbral de cobertura energética para alertas visuales (%)
@@ -1386,7 +1390,7 @@ with tabs[2]:
 
     # ── SECCIÓN 8 & 9: EXPORTACIÓN ────────────────────────────────────────────
     st.markdown("---")
-    st.subheader("📥 Exportar Informe")
+    st.subheader("📥 Descargar Informes")
 
     _fecha3 = datetime.date.today()
     _nombre_archivo3 = _nombre3.replace(" ", "_") if _nombre3 != "—" else "Mascota"
@@ -1396,12 +1400,14 @@ with tabs[2]:
         "edad": _edad3,
         "peso": _peso3,
         "bcs": _bcs3,
+        "etapa": _etapa3,
         "estado_corporal": _estado_corp3,
         "riesgo_nutricional": _riesgo3,
         "condicion": _condicion3,
         "rer": _rer3 or 0.0,
         "mer_base": _mer_base3 or 0.0,
         "diagnostico": _diagnostico3,
+        "recomendaciones": _recomendaciones3,
     }
     _rng_min_exp = _gramos_rec3 * 0.9 if _datos_completos else 0.0
     _rng_max_exp = _gramos_rec3 * 1.1 if _datos_completos else 0.0
@@ -1432,37 +1438,69 @@ with tabs[2]:
         "de": _food_energy3.get("DE", 0) if _food_energy3 else 0,
     }
 
+    # Construir dict mascota completo con valores de session_state
+    _mascota_export3 = {
+        "nombre": _nombre3,
+        "especie": _especie3,
+    }
+
+    # Texto explicativo antes de los botones
+    st.info(
+        "**📌 IMPORTANTE - Dos formatos disponibles:**\n\n"
+        "1️⃣ **Excel (.xlsx) - Ficha Maestra de Seguimiento**\n"
+        "- Archivo base que funciona como historial del paciente\n"
+        "- Guárdelo y cárguelo en futuras visitas\n"
+        "- Permite comparar evolución: peso, BCS, requerimientos energéticos, alimento evaluado, cobertura nutricional\n"
+        "- Se acumula histórico de visitas para tomar decisiones clínicas\n\n"
+        "2️⃣ **HTML (.html) - Informe Visual de Hoy**\n"
+        "- Resumen formal y profesional de la visita actual\n"
+        "- Apto para imprimir o enviar al cliente\n"
+        "- Información visual clara"
+    )
+
     _col_xlsx, _col_html = st.columns(2)
 
     with _col_xlsx:
         try:
-            _xlsx_bytes = exportar_a_excel(
-                _mascota3, _datos_energeticos3, _datos_alimento3,
-                _fecha3, _mer_final3 or 0.0, _recomendaciones3
+            _nutrientes_ref3 = (
+                NUTRIENTES_REFERENCIA_PERRO if _especie3 == "perro" else NUTRIENTES_REFERENCIA_GATO
+            )
+            _xlsx_bytes = exportar_ficha_maestra_excel(
+                mascota=_mascota_export3,
+                datos_energeticos=_datos_energeticos3,
+                datos_alimento=_datos_alimento3,
+                mer_final=_mer_final3 or 0.0,
+                senior_applied=_senior3,
+                recomendaciones=_recomendaciones3,
+                nutrientes_ref=_nutrientes_ref3,
+                cob_pb=_cob_pb3,
+                cob_ee=_cob_ee3,
             )
             st.download_button(
-                label="📥 Descargar Informe (Excel)",
+                label="📥 Descargar ficha maestra de seguimiento (.xlsx)",
                 data=_xlsx_bytes,
-                file_name=f"UYWA_Informe_{_nombre_archivo3}_{_fecha3.strftime('%d%m%Y')}.xlsx",
+                file_name=f"UYWA_Ficha_Nutricional_{_nombre_archivo3}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
+                key="download_ficha_maestra",
             )
         except Exception as _e:
-            st.error(f"Error al generar Excel: {_e}")
+            st.error(f"Error al generar ficha maestra: {_e}")
 
     with _col_html:
         try:
             _html_str = exportar_a_html(
-                _mascota3, _datos_energeticos3, _datos_alimento3,
+                _mascota_export3, _datos_energeticos3, _datos_alimento3,
                 _mer_final3 or 0.0, _diagnostico3, _recomendaciones3
             )
             st.download_button(
-                label="📄 Descargar Informe (HTML)",
+                label="📄 Descargar informe visual de hoy (HTML)",
                 data=_html_str,
                 file_name=f"UYWA_Informe_{_nombre_archivo3}_{_fecha3.strftime('%d%m%Y')}.html",
                 mime="text/html",
                 use_container_width=True,
+                key="download_html_informe",
             )
         except Exception as _e:
-            st.error(f"Error al generar HTML: {_e}")
+            st.error(f"Error al generar informe HTML: {_e}")
 
