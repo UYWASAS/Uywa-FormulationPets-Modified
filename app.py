@@ -158,8 +158,8 @@ FACTORES_CONDICION = {
             "Tendencia obesidad o inactivo": [1.2, 1.4],
             "Obeso": 1.0,
             "Bajo peso": [1.4, 1.6],
-            "Gestación (primera mitad)": 1.8,
-            "Gestación (segunda mitad)": [2.5, 3.0],
+            "Gestación (Primera mitad)": 1.2,
+            "Gestación (Segunda mitad)": 1.6,
             "Lactancia": [3.0, 6.0],
         },
         "cachorro": {
@@ -174,8 +174,8 @@ FACTORES_CONDICION = {
             "Tendencia obesidad": 1.0,
             "Obeso": 0.8,
             "Bajo peso": [1.2, 1.4],
-            "Gestación (inicio)": 1.6,
-            "Gestación (incremento hasta parto)": 2.0,
+            "Gestación (Inicio)": 1.6,
+            "Gestación (Final)": 2.0,
             "Lactancia": [2.0, 6.0],
         },
         "cachorro": {
@@ -183,6 +183,26 @@ FACTORES_CONDICION = {
             "5 meses hasta adulto": 2.0,
         },
     },
+}
+
+# Set of all gestación condition labels (used for BCS logic and descriptions)
+CONDICIONES_GESTACION = {
+    "Gestación (Primera mitad)",
+    "Gestación (Segunda mitad)",
+    "Gestación (Inicio)",
+    "Gestación (Final)",
+}
+
+# Gestación conditions corresponding to early phase (first half / inicio)
+CONDICIONES_GESTACION_INICIAL = {
+    "Gestación (Primera mitad)",
+    "Gestación (Inicio)",
+}
+
+# Gestación conditions corresponding to late phase (second half / final)
+CONDICIONES_GESTACION_FINAL = {
+    "Gestación (Segunda mitad)",
+    "Gestación (Final)",
 }
 
 # ======================== BLOQUE 2: ESTILO Y LOGO CON BARRA LATERAL ========================
@@ -582,8 +602,12 @@ with tabs[0]:
             etapa = st.selectbox("Etapa de vida", ["adulto", "cachorro"], index=["adulto", "cachorro"].index(mascota.get("etapa", "adulto").lower()), key="etapa_mascota")
 
         # Condición fisiológica/productiva dependiente de la etapa
+        _especie_form_cond = st.session_state.get("especie_mascota", mascota.get("especie", "perro"))
         if st.session_state.get("etapa_mascota", mascota.get("etapa", "adulto")) == "adulto":
-            opciones_condicion = ["Castrado", "Entero", "Gestación (Primera mitad)", "Gestación (Segunda mitad)", "Lactancia"]
+            if _especie_form_cond == "perro":
+                opciones_condicion = ["Castrado", "Entero", "Gestación (Primera mitad)", "Gestación (Segunda mitad)", "Lactancia"]
+            else:
+                opciones_condicion = ["Castrado", "Entero", "Gestación (Inicio)", "Gestación (Final)", "Lactancia"]
         else:
             opciones_condicion = ["Destete a 4 meses", "5 meses hasta adulto"]
 
@@ -679,9 +703,35 @@ with tabs[0]:
         mer_actual = energia_basal_actual * factor_fisiologico
 
         factores_bcs = {6: 0.9, 7: 0.8, 8: 0.7, 9: 0.6, 4: 1.1, 3: 1.2, 2: 1.3, 1: 1.4}
-        peso_objetivo = peso * factores_bcs.get(bcs, 1.0) if bcs != 5 and not bcs_disabled else "-"
-        energia_basal_objetivo = calcular_rer(peso_objetivo) if bcs != 5 and not bcs_disabled else "-"
-        mer_final = energia_basal_objetivo * factor_fisiologico if bcs != 5 and not bcs_disabled else mer_actual
+
+        # Determine if condition is gestación
+        es_gestacion = condicion in CONDICIONES_GESTACION
+
+        if es_gestacion and not bcs_disabled:
+            # For gestating animals, BCS adjustment is only applied at extreme values (≤3 or ≥7).
+            # BCS 4–6 is considered an acceptable range for a gestante; no adjustment is needed
+            # because moderate variation in body condition is normal during pregnancy.
+            bcs_gestacion_extremo = bcs <= 3 or bcs >= 7
+            if bcs_gestacion_extremo:
+                # BCS extreme: apply adjustment
+                peso_objetivo = peso * factores_bcs.get(bcs, 1.0)
+                energia_basal_objetivo = calcular_rer(peso_objetivo)
+                mer_final = energia_basal_objetivo * factor_fisiologico
+            else:
+                # BCS 4–6: acceptable range for gestante, no BCS adjustment
+                peso_objetivo = "-"
+                energia_basal_objetivo = "-"
+                mer_final = mer_actual
+        elif not es_gestacion and bcs != 5 and not bcs_disabled:
+            peso_objetivo = peso * factores_bcs.get(bcs, 1.0)
+            energia_basal_objetivo = calcular_rer(peso_objetivo)
+            mer_final = energia_basal_objetivo * factor_fisiologico
+            bcs_gestacion_extremo = False
+        else:
+            peso_objetivo = "-"
+            energia_basal_objetivo = "-"
+            mer_final = mer_actual
+            bcs_gestacion_extremo = False
         factor_condicion_val = round(mer_final / energia_basal_actual, 2) if energia_basal_actual > 1e-6 else "-"
 
         # --- Ajuste senior (paso final, después de todos los cálculos de BCS) ---
@@ -876,6 +926,14 @@ with tabs[0]:
     if aplicar_ajuste_senior and not senior_aplicado and etapa == "adulto" and especie in ("perro", "gato"):
         st.warning("⚠️ Ajuste senior no aplicado porque el requerimiento fue priorizado por corrección de condición corporal.")
 
+    # Mensajes informativos para gestación
+    if es_gestacion and not bcs_disabled:
+        if not bcs_gestacion_extremo:
+            st.info("ℹ️ Ajuste BCS no aplicado: La gestante se encuentra en condición corporal aceptable. "
+                    "El requerimiento se basa únicamente en el factor de gestación.")
+        else:
+            st.warning("⚠️ Condición corporal fuera de rango ideal. Se aplicará corrección adicional por BCS.")
+
     # Botón de edición
     st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
     if st.button("✏️ Editar perfil", key="btn_editar_perfil_shortcut"):
@@ -883,11 +941,19 @@ with tabs[0]:
 
     # ===================== TABLAS DETALLADAS (ANCHO COMPLETO) =====================
     try:
+        # Descripción condicional para MER Actual según gestación
+        if condicion in CONDICIONES_GESTACION_INICIAL:
+            _desc_mer_actual = "Incremento energético asociado al desarrollo embrionario inicial y adaptación metabólica materna."
+        elif condicion in CONDICIONES_GESTACION_FINAL:
+            _desc_mer_actual = "Incremento energético elevado por crecimiento fetal acelerado y preparación para la lactancia."
+        else:
+            _desc_mer_actual = "Energía diaria necesaria según la condición productiva y fisiológica."
+
         # Tabla de energías calculadas
         _senior_valor = "Aplicado: ×0.85" if senior_aplicado else "No aplicado"
         energia_data = [
             {"Tipo": "RER Actual", "Valor": f"{fmt2(energia_basal_actual)} kcal/día", "Descripción": "Energía necesaria en reposo para mantener funciones básicas como respirar y digerir."},
-            {"Tipo": "MER Actual (RER × Factor Fisiológico)", "Valor": f"{fmt2(mer_actual)} kcal/día", "Descripción": "Energía diaria necesaria según la condición productiva y fisiológica."},
+            {"Tipo": "MER Actual (RER × Factor Fisiológico)", "Valor": f"{fmt2(mer_actual)} kcal/día", "Descripción": _desc_mer_actual},
             {"Tipo": "Peso Objetivo", "Valor": f"{fmt2(peso_objetivo)} kg" if peso_objetivo != "-" else "-", "Descripción": "Peso estimado para ajustar según la condición corporal (BCS)."},
             {"Tipo": "RER Objetivo", "Valor": f"{fmt2(energia_basal_objetivo)} kcal/día" if energia_basal_objetivo != "-" else "-", "Descripción": "Energía en reposo recalculada con el peso objetivo."},
             {"Tipo": "Ajuste senior", "Valor": _senior_valor, "Descripción": "Corrección energética opcional (-15%, ×0.85) para animales adultos senior (7+ años), usada solo cuando la condición corporal es ideal."},
