@@ -158,7 +158,7 @@ def generar_decision_resumen(cobertura, energia_aportada, mer_final,
 def exportar_a_excel(mascota, datos_energeticos, datos_alimento,
                      fecha, mer_final, recomendaciones):
     """
-    Genera un archivo Excel con 3 hojas: RESUMEN, VISITA ACTUAL, ANÁLISIS DEL ALIMENTO.
+    Genera un archivo Excel con 4 hojas: RESUMEN, VISITA ACTUAL, ANÁLISIS DEL ALIMENTO, RECOMENDACIONES.
 
     Parámetros:
         mascota (dict)            : Datos de la mascota (nombre, especie, etc.).
