@@ -540,6 +540,37 @@ def show_food_analysis():
     """
     Renderiza la interfaz de análisis nutricional en el Tab de Análisis de Streamlit.
     """
+    st.markdown(
+        """
+        <style>
+        .energy-table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+            font-size: 15px;
+            text-align: center;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .energy-table th {
+            background-color: #4A5568;
+            color: #fff;
+            padding: 10px;
+            font-weight: bold;
+        }
+        .energy-table td {
+            padding: 10px;
+        }
+        .energy-table tr:nth-child(even) {
+            background-color: #edf2f7;
+        }
+        .energy-table tr:nth-child(odd) {
+            background-color: #ffffff;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     st.header("Análisis Nutricional de Alimentos")
     st.markdown(
         "Selecciona un alimento para ver su composición proximal y el cálculo de "
@@ -679,21 +710,19 @@ def show_food_analysis():
 
     # Tabla de valores energéticos calculados (paso a paso)
     st.markdown("#### 📋 Resultados del Cálculo Energético (NRC)")
-    energy_calc_df = pd.DataFrame([
-        {"Parámetro": "Materia Seca (MS)", "Valor": energy["MS"], "Unidad": "%"},
-        {"Parámetro": "FC en base MS (FC_MS)", "Valor": energy["FC_MS"], "Unidad": "%"},
-        {"Parámetro": "Energía Bruta (GE)", "Valor": energy["GE"], "Unidad": "kcal/100g"},
-        {"Parámetro": "Digestibilidad Energética (DE%)", "Valor": energy["DE_pct"], "Unidad": "%"},
-        {"Parámetro": "Energía Digestible (DE)", "Valor": energy["DE"], "Unidad": "kcal/100g"},
-        {"Parámetro": "Energía Metabolizable (ME)", "Valor": energy["ME"], "Unidad": "kcal/100g"},
-    ])
-    st.dataframe(
-        energy_calc_df.set_index("Parámetro"),
-        use_container_width=True,
-        column_config={
-            "Valor": st.column_config.NumberColumn("Valor", format="%.2f"),
-        },
-    )
+    energy_calc_rows = [
+        ("Materia Seca (MS)", energy["MS"], "%"),
+        ("FC en base MS (FC_MS)", energy["FC_MS"], "%"),
+        ("Energía Bruta (GE)", energy["GE"], "kcal/100g"),
+        ("Digestibilidad Energética (DE%)", energy["DE_pct"], "%"),
+        ("Energía Digestible (DE)", energy["DE"], "kcal/100g"),
+        ("Energía Metabolizable (ME)", energy["ME"], "kcal/100g"),
+    ]
+    html_energy_calc = "<table class='energy-table'><thead><tr><th>Parámetro</th><th>Valor</th><th>Unidad</th></tr></thead><tbody>"
+    for param, val, unit in energy_calc_rows:
+        html_energy_calc += f"<tr><td>{param}</td><td>{val:.2f}</td><td>{unit}</td></tr>"
+    html_energy_calc += "</tbody></table>"
+    st.markdown(html_energy_calc, unsafe_allow_html=True)
 
     # ME destacada
     me_por_kg = energy["ME"] * 10.0
@@ -787,7 +816,11 @@ def show_food_analysis():
             {"Concepto": "Cobertura energética", "Valor": f"{cobertura_pct:.1f}%"},
         ]
     aporte_df = pd.DataFrame(base_rows)
-    st.dataframe(aporte_df.set_index("Concepto"), use_container_width=True)
+    html_aporte = "<table class='energy-table'><thead><tr><th>Concepto</th><th>Valor</th></tr></thead><tbody>"
+    for _, row in aporte_df.iterrows():
+        html_aporte += f"<tr><td>{row['Concepto']}</td><td>{row['Valor']}</td></tr>"
+    html_aporte += "</tbody></table>"
+    st.markdown(html_aporte, unsafe_allow_html=True)
 
     # Gráfico comparativo mejorado (solo cuando MER disponible)
     if mer_animal and mer_animal > 0:
@@ -827,9 +860,19 @@ def show_food_analysis():
         st.markdown("#### 📋 Tabla de Desglose Energético")
         breakdown_df = build_energy_breakdown_table(selected_for_comparison)
         if not breakdown_df.empty:
-            st.dataframe(
-                breakdown_df.set_index("Alimento"),
-                use_container_width=True,
-            )
+            html_breakdown = "<table class='energy-table'><thead><tr>"
+            for col in breakdown_df.columns:
+                html_breakdown += f"<th>{col}</th>"
+            html_breakdown += "</tr></thead><tbody>"
+            for _, row in breakdown_df.iterrows():
+                html_breakdown += "<tr>"
+                for val in row:
+                    if isinstance(val, float):
+                        html_breakdown += f"<td>{val:.2f}</td>"
+                    else:
+                        html_breakdown += f"<td>{val}</td>"
+                html_breakdown += "</tr>"
+            html_breakdown += "</tbody></table>"
+            st.markdown(html_breakdown, unsafe_allow_html=True)
     else:
         st.info("Selecciona al menos un alimento para ver la comparación energética.")
