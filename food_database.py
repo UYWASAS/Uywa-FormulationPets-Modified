@@ -9,11 +9,31 @@
 import csv
 import os
 
-# Columnas numéricas requeridas en el CSV
+# Columnas numéricas requeridas en el CSV (formato original)
 _REQUIRED_NUMERIC_COLUMNS = {"PB(%)", "EE(%)", "Ash(%)", "Humedad(%)", "FC(%)"}
 
-# Columnas mínimas que deben estar presentes en el CSV
+# Columnas mínimas que deben estar presentes en el CSV (formato original)
 _REQUIRED_COLUMNS = {"ID", "Nombre", "Descripcion", "Categoria", "Emoji"} | _REQUIRED_NUMERIC_COLUMNS
+
+# ---------------------------------------------------------------------------
+# Constantes para el nuevo CSV con 21 columnas precalculadas (v2)
+# ---------------------------------------------------------------------------
+
+# Columnas numéricas requeridas en el nuevo CSV v2
+_REQUIRED_NUMERIC_COLUMNS_V2 = {
+    "PB(%)", "EE(%)", "Ash(%)", "Humedad(%)", "FC(%)",
+    "ENA(%)", "FC_MS(%)", "GE(kcal)", "DE(kcal)", "ME(kcal)", "Precio_USD_kg",
+}
+
+# Columnas de texto requeridas en el nuevo CSV v2
+_REQUIRED_TEXT_COLUMNS_V2 = {"ID", "Nombre", "Marca", "Especie", "Etapa_de_Vida"}
+
+# Todas las columnas requeridas en el nuevo CSV v2
+_REQUIRED_COLUMNS_V2 = (
+    _REQUIRED_TEXT_COLUMNS_V2
+    | _REQUIRED_NUMERIC_COLUMNS_V2
+    | {"Ingredientes", "Fuente_PB", "Fuente_EE", "Fuente_FC", "Otros"}
+)
 
 # Ruta por defecto del CSV (mismo directorio que este módulo)
 _DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "comercial_diets_ecuador.csv")
@@ -137,6 +157,222 @@ def load_diets_from_csv(csv_path: str) -> dict:
     return foods
 
 
+def validate_csv_v2(csv_path: str) -> list[str]:
+    """
+    Valida la estructura del CSV con 21 columnas precalculadas (v2).
+
+    Comprueba únicamente las columnas críticas (13 de las 21) para permitir
+    carga parcial cuando alguna de las columnas opcionales esté ausente.
+
+    Parámetros:
+        csv_path (str): Ruta al archivo CSV.
+
+    Retorna:
+        list[str]: Lista de errores. Vacía si el CSV es válido.
+    """
+    errors: list[str] = []
+
+    if not os.path.isfile(csv_path):
+        errors.append(f"Archivo no encontrado: {csv_path}")
+        return errors
+
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            if reader.fieldnames is None:
+                errors.append("El archivo CSV está vacío o no tiene encabezados.")
+                return errors
+
+            headers = set(reader.fieldnames)
+
+            # Validar columnas críticas (subconjunto de las 21)
+            columnas_criticas = {
+                "ID", "Nombre", "Marca", "Especie", "Etapa_de_Vida",
+                "PB(%)", "EE(%)", "Ash(%)", "Humedad(%)", "FC(%)",
+                "GE(kcal)", "DE(kcal)", "ME(kcal)",
+            }
+            missing = columnas_criticas - headers
+            if missing:
+                errors.append(f"Columnas faltantes: {', '.join(sorted(missing))}")
+                return errors
+
+            # Validar datos en cada fila
+            columnas_numeric_validar = {
+                "PB(%)", "EE(%)", "Ash(%)", "Humedad(%)", "FC(%)",
+                "GE(kcal)", "DE(kcal)", "ME(kcal)",
+            }
+            for row_num, row in enumerate(reader, start=2):
+                nombre = row.get("Nombre", "").strip()
+                if not nombre:
+                    errors.append(f"Fila {row_num}: columna 'Nombre' vacía.")
+                    continue
+                for col in columnas_numeric_validar:
+                    val = row.get(col, "").strip()
+                    if val == "":
+                        errors.append(f"Fila {row_num} ({nombre}): '{col}' vacío.")
+                    else:
+                        try:
+                            float(val)
+                        except ValueError:
+                            errors.append(
+                                f"Fila {row_num} ({nombre}): '{col}' = '{val}' no es numérico."
+                            )
+
+    except Exception as exc:
+        errors.append(f"Error al leer CSV: {exc}")
+
+    return errors
+
+
+def load_diets_from_csv_v2(csv_path: str) -> dict:
+    """
+    Carga dietas desde CSV con 21 columnas precalculadas (v2).
+
+    A diferencia de ``load_diets_from_csv()``, esta función usa directamente los
+    valores de energía ya calculados en el CSV (ENA, FC_MS, GE, DE, ME) en lugar
+    de recalcularlos. Las funciones ``calculate_ena()`` y ``calculate_energy()``
+    siguen disponibles por compatibilidad pero **no se invocan** durante la carga.
+
+    Estructura esperada del CSV:
+    - Composición (% as-fed): PB, EE, Ash, Humedad, FC
+    - Precalculados: ENA(%), FC_MS(%), GE(kcal), DE(kcal), ME(kcal)
+    - Metadata: Marca, Especie, Etapa_de_Vida, Precio_USD_kg
+    - Info detallada: Ingredientes, Fuente_PB, Fuente_EE, Fuente_FC, Otros
+
+    Parámetros:
+        csv_path (str): Ruta al archivo CSV.
+
+    Retorna:
+        dict: Diccionario de alimentos compatible con FOODS, o {} si no se pudo
+        leer el archivo.
+    """
+    import logging
+
+    errors = validate_csv_v2(csv_path)
+    if errors:
+        for err in errors[:5]:
+            logging.warning("CSV v2 validation: %s", err)
+        # No se interrumpe la carga; se intentan procesar las filas válidas.
+
+    foods: dict = {}
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            for row_num, row in enumerate(reader, start=2):
+                nombre = row.get("Nombre", "").strip()
+                if not nombre:
+                    continue
+                try:
+                    # --- Composición (% as-fed) ---
+                    pb = float(row.get("PB(%)", "0").strip() or "0")
+                    ee = float(row.get("EE(%)", "0").strip() or "0")
+                    ash = float(row.get("Ash(%)", "0").strip() or "0")
+                    humidity = float(row.get("Humedad(%)", "0").strip() or "0")
+                    fc = float(row.get("FC(%)", "0").strip() or "0")
+
+                    # --- Valores precalculados (del CSV, NO recalcular) ---
+                    ena = float(row.get("ENA(%)", "0").strip() or "0")
+                    fc_ms = float(row.get("FC_MS(%)", "0").strip() or "0")
+                    ge = float(row.get("GE(kcal)", "0").strip() or "0")
+                    de = float(row.get("DE(kcal)", "0").strip() or "0")
+                    me = float(row.get("ME(kcal)", "0").strip() or "0")
+
+                    # --- Precio (opcional) ---
+                    precio_str = row.get("Precio_USD_kg", "").strip()
+                    precio = float(precio_str) if precio_str else None
+
+                    # --- Metadata texto ---
+                    id_alimento = row.get("ID", "").strip()
+                    marca = row.get("Marca", "").strip()
+                    especie = row.get("Especie", "").strip()
+                    etapa = row.get("Etapa_de_Vida", "").strip()
+                    ingredientes = row.get("Ingredientes", "").strip()
+                    fuente_pb = row.get("Fuente_PB", "").strip()
+                    fuente_ee = row.get("Fuente_EE", "").strip()
+                    fuente_fc = row.get("Fuente_FC", "").strip()
+                    otros = row.get("Otros", "").strip()
+
+                    # --- Emoji según especie ---
+                    especie_lower = especie.lower()
+                    if "perro" in especie_lower:
+                        emoji = "🐶"
+                    elif "gato" in especie_lower:
+                        emoji = "🐱"
+                    else:
+                        emoji = "🍖"
+
+                    # --- Descripción y categoría ---
+                    descripcion = f"{marca} - {etapa}"
+                    if ingredientes:
+                        descripcion += f" | Ingredientes: {ingredientes}"
+
+                    # --- Valores derivados ---
+                    de_pct = (de / ge * 100.0) if ge > 0 else 0.0
+                    ms = max(0.0, 100.0 - humidity)
+
+                    entry: dict = {
+                        # Valores base (as-fed) — disponibles para recálculo si se requiere
+                        "PB": round(pb, 2),
+                        "EE": round(ee, 2),
+                        "Ash": round(ash, 2),
+                        "Humidity": round(humidity, 2),
+                        "FC": round(fc, 2),
+                        # Valores precalculados del CSV
+                        "ENA": round(ena, 2),
+                        "GE": round(ge, 2),
+                        "DE": round(de, 2),
+                        "ME": round(me, 2),
+                        "FC_MS": round(fc_ms, 2),
+                        "DE_pct": round(de_pct, 2),
+                        "MS": round(ms, 2),
+                        # Metadata comercial
+                        "id": id_alimento,
+                        "brand": marca,
+                        "species": especie,
+                        "life_stage": etapa,
+                        "price_usd_kg": precio,
+                        # Info nutricional detallada
+                        "ingredients": ingredientes,
+                        "source_pb": fuente_pb,
+                        "source_ee": fuente_ee,
+                        "source_fc": fuente_fc,
+                        "other_info": otros,
+                        # Campos de compatibilidad con el resto del app
+                        "description": descripcion,
+                        "category": etapa,
+                        "emoji": emoji,
+                    }
+                    foods[nombre] = entry
+
+                except (ValueError, KeyError) as exc:
+                    logging.warning("CSV v2 row %d (%s): error de parseo — %s", row_num, nombre, exc)
+                    continue
+
+    except Exception as exc:
+        logging.error("Error al cargar CSV v2: %s", exc)
+        return {}
+
+    return foods
+
+
+def food_data_is_precalculated(food_data: dict) -> bool:
+    """
+    Verifica si los datos de energía de un alimento provienen del CSV v2
+    (precalculados) o si fueron calculados en tiempo de ejecución.
+
+    Se considera precalculado cuando el diccionario incluye la clave ``DE_pct``
+    con un valor no nulo, característica exclusiva de las entradas cargadas por
+    ``load_diets_from_csv_v2()``.
+
+    Parámetros:
+        food_data (dict): Datos de composición de un alimento.
+
+    Retorna:
+        bool: ``True`` si los valores energéticos son precalculados.
+    """
+    return "DE_pct" in food_data and food_data.get("DE_pct") is not None
+
+
 # ---------------------------------------------------------------------------
 # Datos de respaldo (hardcoded) — usados cuando el CSV no está disponible
 # ---------------------------------------------------------------------------
@@ -204,9 +440,12 @@ _FOODS_FALLBACK = {
 }
 
 # ---------------------------------------------------------------------------
-# Inicialización: intentar cargar desde CSV; usar fallback si falla
+# Inicialización: intentar cargar desde CSV v2 (21 columnas); si falla intentar
+# CSV v1 (10 columnas) y, en último recurso, usar el diccionario de respaldo.
 # ---------------------------------------------------------------------------
-_foods_cache = load_diets_from_csv(_DEFAULT_CSV_PATH)
+_foods_cache = load_diets_from_csv_v2(_DEFAULT_CSV_PATH)
+if not _foods_cache:
+    _foods_cache = load_diets_from_csv(_DEFAULT_CSV_PATH)
 FOODS: dict = _foods_cache if _foods_cache else _FOODS_FALLBACK
 
 
