@@ -489,6 +489,120 @@ def build_energy_breakdown_table(selected_foods):
     return pd.DataFrame(rows)
 
 
+def build_energy_breakdown_table_with_edits(selected_foods, edited_values_map=None):
+    """
+    Construye tabla energética considerando valores editados por el usuario.
+
+    Parámetros:
+        selected_foods (list[str]): Nombres de alimentos a comparar
+        edited_values_map (dict): Mapa {nombre_alimento: {columna: valor_editado}}
+                                 Si None, usa valores originales de FOODS
+
+    Retorna:
+        pandas.DataFrame con desglose energético (considera ediciones)
+    """
+    rows = []
+    for fname in selected_foods:
+        fdata = get_food_data(fname)
+        if not fdata:
+            continue
+
+        # Si hay valores editados para este alimento, usarlos
+        if edited_values_map and fname in edited_values_map:
+            edited_fdata = dict(fdata)
+            for col_key, col_val in edited_values_map[fname].items():
+                edited_fdata[col_key] = col_val
+        else:
+            edited_fdata = fdata
+
+        bd = calculate_energy_breakdown(edited_fdata)
+        rows.append({
+            "Alimento": f"{edited_fdata.get('emoji','')} {fname}",
+            "Proteína (kcal/100g)": bd["kcal_pb"],
+            "Grasa (kcal/100g)": bd["kcal_ee"],
+            "Carbohidratos (kcal/100g)": bd["kcal_cho"],
+            "GE Total (kcal/100g)": bd["GE"],
+            "DE Total (kcal/100g)": bd["DE"],
+            "ME Total (kcal/100g)": bd["ME"],
+        })
+    return pd.DataFrame(rows)
+
+
+def plot_energy_breakdown_stacked_with_edits(selected_foods, edited_values_map=None):
+    """
+    Gráfico apilado considerando valores editados.
+
+    Parámetros:
+        selected_foods (list[str]): Alimentos a comparar
+        edited_values_map (dict): Mapa de ediciones {nombre: {col: valor}}
+
+    Retorna:
+        plotly Figure
+    """
+    emoji_names = []
+    me_pb_vals = []
+    me_ee_vals = []
+    me_cho_vals = []
+
+    for fname in selected_foods:
+        fdata = get_food_data(fname)
+        if not fdata:
+            continue
+
+        # Aplicar ediciones si existen
+        if edited_values_map and fname in edited_values_map:
+            edited_fdata = dict(fdata)
+            for col_key, col_val in edited_values_map[fname].items():
+                edited_fdata[col_key] = col_val
+        else:
+            edited_fdata = fdata
+
+        bd = calculate_energy_breakdown(edited_fdata)
+        emoji_names.append(f"{edited_fdata.get('emoji', '')} {fname}")
+        me_pb_vals.append(bd["me_pb"])
+        me_ee_vals.append(bd["me_ee"])
+        me_cho_vals.append(bd["me_cho"])
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name="Proteína (PB)",
+        x=emoji_names,
+        y=me_pb_vals,
+        marker_color="#2176FF",
+        hovertemplate="<b>Proteína</b><br>%{y:.1f} kcal/100g<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        name="Grasa (EE)",
+        x=emoji_names,
+        y=me_ee_vals,
+        marker_color="#FFB703",
+        hovertemplate="<b>Grasa</b><br>%{y:.1f} kcal/100g<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        name="Carbohidratos + Fibra",
+        x=emoji_names,
+        y=me_cho_vals,
+        marker_color="#52B788",
+        hovertemplate="<b>Carbohidratos + Fibra</b><br>%{y:.1f} kcal/100g<extra></extra>",
+    ))
+
+    fig.update_layout(
+        barmode="stack",
+        title=dict(
+            text="Origen de la Energía Metabolizable por Alimento",
+            font=dict(size=16, family="Montserrat, sans-serif"),
+        ),
+        yaxis_title="Energía Metabolizable (kcal / 100 g)",
+        xaxis_tickangle=-25,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.45, xanchor="center", x=0.5),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        height=480,
+        margin=dict(t=60, b=140, l=60, r=40),
+    )
+    return fig
+
+
 def plot_nutrient_comparison(mer_animal, me_total_kcal, req_pb_g, gramos_pb, req_ee_g, gramos_ee):
     """
     Crea un gráfico de subplots (3 paneles) comparando Requerimiento vs Aporte
@@ -1160,26 +1274,50 @@ def show_food_analysis():
     st.markdown(
         "Este gráfico muestra **de qué nutriente proviene la energía** del alimento "
         "(Proteína, Grasa y Carbohidratos) según el modelo NRC. "
-        "Selecciona varios alimentos para comparar su perfil energético."
+        "Selecciona varios alimentos para comparar su perfil energético. "
+        "**Se actualiza automáticamente con valores editados** ✏️"
     )
+
+    # ═══ INICIALIZAR MULTISELECT CON SESSION STATE ═══
+    session_key_comparison = f"comparison_foods_{food_name}" if food_name else "comparison_foods_default"
+    if session_key_comparison not in st.session_state:
+        st.session_state[session_key_comparison] = [food_name] if food_name else []
+
     selected_for_comparison = st.multiselect(
         "Selecciona alimentos para comparar (hasta 6)",
         food_names,
-        default=[food_name] if food_name else [],
-        key="analysis_comparison_selector",
+        default=st.session_state[session_key_comparison],
+        key=session_key_comparison,
         max_selections=6,
     )
-    if selected_for_comparison:
-        # Gráfico de barras apiladas
-        st.plotly_chart(plot_energy_breakdown_stacked(selected_for_comparison), use_container_width=True)
 
-        # Cards individuales
+    # Guardar en session_state para sincronización
+    st.session_state[session_key_comparison] = selected_for_comparison
+
+    if selected_for_comparison:
+        # ═══ PREPARAR MAPA DE VALORES EDITADOS ═══
+        edited_values_map = {}
+
+        # Si el alimento actual está seleccionado Y tiene valores editados, incluirlo
+        if food_name and food_name in selected_for_comparison:
+            edited_values_map[food_name] = {
+                key: float(edited_food_data.get(key, 0))
+                for key in ("PB", "EE", "Ash", "Humidity", "FC")
+            }
+
+        # ═══ GRÁFICO CON VALORES EDITADOS ═══
+        st.plotly_chart(
+            plot_energy_breakdown_stacked_with_edits(selected_for_comparison, edited_values_map),
+            use_container_width=True,
+        )
+
+        # ═══ CARDS INDIVIDUALES ═══
         st.markdown("#### 🃏 Desglose por Alimento")
         show_energy_breakdown_cards(selected_for_comparison)
 
-        # Tabla de desglose energético
+        # ═══ TABLA CON VALORES EDITADOS ═══
         st.markdown("#### 📋 Tabla de Desglose Energético")
-        breakdown_df = build_energy_breakdown_table(selected_for_comparison)
+        breakdown_df = build_energy_breakdown_table_with_edits(selected_for_comparison, edited_values_map)
         if not breakdown_df.empty:
             html_breakdown = "<table class='energy-table'><thead><tr>"
             for col in breakdown_df.columns:
@@ -1195,5 +1333,9 @@ def show_food_analysis():
                 html_breakdown += "</tr>"
             html_breakdown += "</tbody></table>"
             st.markdown(html_breakdown, unsafe_allow_html=True)
+
+        # ═══ INDICADOR DE VALORES EDITADOS ═══
+        if food_name in edited_values_map:
+            st.caption("✏️ *Gráficos muestran valores editados del alimento seleccionado*")
     else:
-        st.info("Selecciona al menos un alimento para ver la comparación energética.")
+        st.info("👆 Selecciona al menos un alimento para ver la comparación energética.")
