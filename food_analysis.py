@@ -615,6 +615,64 @@ def plot_nutrient_comparison(mer_animal, me_total_kcal, req_pb_g, gramos_pb, req
     return fig
 
 
+def get_foods_by_species(species: str) -> list[str]:
+    """
+    Filtra alimentos por especie del diccionario FOODS.
+
+    Parámetros:
+        species (str): "perro", "gato" o vacío (todos)
+
+    Retorna:
+        list[str]: Nombres de alimentos disponibles ordenados alfabéticamente
+    """
+    if not species or species.strip() == "":
+        return sorted(list(FOODS.keys()))
+
+    species_lower = species.lower().strip()
+    alimentos_filtrados = []
+
+    # "perro" in session_state maps to "canino" in the XLSX species field
+    # "gato" in session_state maps to "felino" or "gato" in the XLSX species field
+    _PERRO_TERMS = {"perro", "canino", "canine"}
+    _GATO_TERMS = {"gato", "felino", "feline"}
+
+    for nombre, datos in FOODS.items():
+        food_species = datos.get("species", "").lower()
+        food_category = datos.get("category", "").lower()
+
+        if "perro" in species_lower:
+            if any(t in food_species for t in _PERRO_TERMS) or any(t in food_category for t in _PERRO_TERMS):
+                alimentos_filtrados.append(nombre)
+        elif "gato" in species_lower:
+            if any(t in food_species for t in _GATO_TERMS) or any(t in food_category for t in _GATO_TERMS):
+                alimentos_filtrados.append(nombre)
+
+    # Si no hay resultados filtrados, devolver todos (fallback)
+    if not alimentos_filtrados:
+        return sorted(list(FOODS.keys()))
+
+    return sorted(alimentos_filtrados)
+
+
+def filtrar_alimentos_por_busqueda(query: str, alimentos: list) -> list[str]:
+    """
+    Filtra alimentos por búsqueda de texto en nombre/marca (case-insensitive).
+
+    Parámetros:
+        query (str): Texto de búsqueda (puede estar vacío)
+        alimentos (list): Lista de nombres de alimentos
+
+    Retorna:
+        list[str]: Alimentos que coinciden con la búsqueda
+    """
+    if not query or query.strip() == "":
+        return alimentos
+
+    query_lower = query.lower().strip()
+    resultados = [alim for alim in alimentos if query_lower in alim.lower()]
+    return sorted(resultados)
+
+
 def show_food_analysis():
     """
     Renderiza la interfaz de análisis nutricional en el Tab de Análisis de Streamlit.
@@ -689,12 +747,62 @@ def show_food_analysis():
         "energía metabolizable según el modelo **NRC**."
     )
 
+    # Full list kept for the comparison multiselect later in this function
     food_names = get_food_names()
+
+    # ── Especie desde Pestaña 1 ───────────────────────────────────────────────
+    especie = st.session_state.get("especie_mascota", "")
+    if especie:
+        st.markdown(f"**🐾 Especie:** {especie.capitalize()}")
+        st.markdown("---")
+
+    # ── Filtrar alimentos por especie ─────────────────────────────────────────
+    alimentos_disponibles = get_foods_by_species(especie)
+
+    col_search, col_info = st.columns([3, 1])
+    with col_search:
+        query_busqueda = st.text_input(
+            "🔍 Busca un alimento (nombre o marca):",
+            placeholder="Ej: Pro Plan, Purina, Royal Canin...",
+            key="food_search_input",
+            help="Escribe para filtrar alimentos disponibles",
+        )
+    with col_info:
+        _plural_especie = {"perro": "perros", "gato": "gatos"}.get(especie.lower(), "")
+        st.metric(
+            "Disponibles",
+            len(alimentos_disponibles),
+            f"para {_plural_especie}" if _plural_especie else None,
+        )
+
+    # ── Filtrar dinámicamente por búsqueda ────────────────────────────────────
+    alimentos_filtrados = filtrar_alimentos_por_busqueda(query_busqueda, alimentos_disponibles)
+
+    if query_busqueda:
+        st.caption(f"📌 {len(alimentos_filtrados)} resultado(s) encontrado(s)")
+
+    if not alimentos_filtrados:
+        st.warning(f"❌ No se encontraron alimentos con '{query_busqueda}'")
+        especie_info = f" para {_plural_especie}" if _plural_especie else ""
+        st.info(f"💡 **Alimentos disponibles{especie_info}:**")
+        cols = st.columns(2)
+        for idx, alim in enumerate(alimentos_disponibles[:10]):
+            with cols[idx % 2]:
+                st.write(f"• {alim}")
+        if len(alimentos_disponibles) > 10:
+            st.caption(f"...y {len(alimentos_disponibles) - 10} más")
+        return
+
     food_name = st.selectbox(
-        "🔍 Selecciona un alimento balanceado",
-        food_names,
+        "Selecciona un alimento balanceado:",
+        alimentos_filtrados,
         key="analysis_food_selector",
+        help="Elige el alimento que consume tu mascota",
     )
+
+    # Guardar en session_state para otras pestañas
+    st.session_state["alimento_seleccionado"] = food_name
+    st.session_state["food_name"] = food_name
 
     food_data = get_food_data(food_name)
     if food_data is None:
