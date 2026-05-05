@@ -7,7 +7,10 @@
 # Si el archivo no está disponible se usa el diccionario de respaldo definido abajo.
 
 import csv
+import logging
 import os
+
+import pandas as pd
 
 # Columnas numéricas requeridas en el CSV (formato original)
 _REQUIRED_NUMERIC_COLUMNS = {"PB(%)", "EE(%)", "Ash(%)", "Humedad(%)", "FC(%)"}
@@ -35,7 +38,13 @@ _REQUIRED_COLUMNS_V2 = (
     | {"Ingredientes", "Fuente_PB", "Fuente_EE", "Fuente_FC", "Otros"}
 )
 
-# Ruta por defecto del CSV (mismo directorio que este módulo)
+# Ruta por defecto del XLSX (nuevo, tiene prioridad sobre CSV)
+_DEFAULT_XLSX_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "comercial_diets_ecuador.xlsx",
+)
+
+# Ruta por defecto del CSV (fallback)
 _DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "comercial_diets_ecuador.csv")
 
 # Caché en memoria: se llena al importar el módulo
@@ -246,8 +255,6 @@ def load_diets_from_csv_v2(csv_path: str) -> dict:
         dict: Diccionario de alimentos compatible con FOODS, o {} si no se pudo
         leer el archivo.
     """
-    import logging
-
     errors = validate_csv_v2(csv_path)
     if errors:
         for err in errors[:5]:
@@ -355,6 +362,225 @@ def load_diets_from_csv_v2(csv_path: str) -> dict:
     return foods
 
 
+def validate_xlsx_v2(xlsx_path: str) -> list[str]:
+    """
+    Valida la estructura del archivo XLSX con 21 columnas.
+
+    Verifica columnas críticas (10 de las 21) para permitir carga
+    parcial cuando algunas columnas opcionales estén ausentes.
+
+    Parámetros:
+        xlsx_path (str): Ruta al archivo XLSX.
+
+    Retorna:
+        list[str]: Lista de errores. Vacía si es válido.
+    """
+    errors: list[str] = []
+
+    if not os.path.isfile(xlsx_path):
+        errors.append(f"Archivo no encontrado: {xlsx_path}")
+        return errors
+
+    try:
+        df = pd.read_excel(xlsx_path, sheet_name=0)
+
+        if df is None or len(df) == 0:
+            errors.append("El archivo XLSX está vacío.")
+            return errors
+
+        # Columnas críticas requeridas
+        columnas_criticas = {
+            "ID", "Nombre", "Marca", "Especie", "Etapa_de_Vida",
+            "PB(%)", "EE(%)", "Ash(%)", "Humedad(%)", "FC(%)",
+        }
+
+        headers = set(df.columns)
+        missing = columnas_criticas - headers
+        if missing:
+            errors.append(f"Columnas faltantes: {', '.join(sorted(missing))}")
+            return errors
+
+        columnas_numeric = ["PB(%)", "EE(%)", "Ash(%)", "Humedad(%)", "FC(%)"]
+        for idx, row in df.iterrows():
+            row_num = idx + 2  # +1 para índice 1-based, +1 por la fila de encabezado
+            nombre = str(row.get("Nombre", "")).strip()
+
+            if not nombre or nombre == "nan":
+                errors.append(f"Fila {row_num}: 'Nombre' vacío.")
+                continue
+
+            for col in columnas_numeric:
+                val = row.get(col)
+
+                if pd.isna(val):
+                    errors.append(f"Fila {row_num} ({nombre}): '{col}' vacío.")
+                    continue
+
+                try:
+                    float(val)
+                except (ValueError, TypeError):
+                    errors.append(
+                        f"Fila {row_num} ({nombre}): '{col}' = '{val}' no es numérico."
+                    )
+
+    except Exception as exc:
+        errors.append(f"Error al leer XLSX: {exc}")
+
+    return errors
+
+
+def load_diets_from_xlsx_v2(xlsx_path: str) -> dict:
+    """
+    Carga dietas desde archivo XLSX con 21 columnas.
+
+    Comportamiento clave:
+    - Lee composición base: PB, EE, Ash, Humedad, FC
+    - **RECALCULA** energía usando fórmulas NRC (calculate_energy)
+    - **IGNORA** valores precalculados en el Excel: ENA, GE, DE, ME, FC_MS
+    - Mantiene metadata comercial: Marca, Especie, Ingredientes, etc.
+
+    El campo Ingredientes se lee de la columna "Ingredientes (5 primeros de la
+    lista)" si existe, con fallback a "Ingredientes".
+
+    Parámetros:
+        xlsx_path (str): Ruta al archivo XLSX.
+
+    Retorna:
+        dict: Diccionario de alimentos compatible con FOODS, o {} si no se pudo leer.
+    """
+    errors = validate_xlsx_v2(xlsx_path)
+    if errors:
+        for err in errors[:5]:
+            logging.warning("XLSX v2 validation: %s", err)
+        # No se interrumpe; se intentan procesar las filas válidas
+
+    foods: dict = {}
+
+    try:
+        df = pd.read_excel(xlsx_path, sheet_name=0)
+
+        if df is None or len(df) == 0:
+            logging.error("XLSX v2: Archivo vacío")
+            return {}
+
+        for idx, row in df.iterrows():
+            row_num = idx + 2  # +1 para índice 1-based, +1 por la fila de encabezado
+            nombre = str(row.get("Nombre", "")).strip()
+
+            if not nombre or nombre == "nan":
+                continue
+
+            try:
+                # --- LEER COMPOSICIÓN BASE (% as-fed) ---
+                pb = float(row.get("PB(%)", 0) or 0)
+                ee = float(row.get("EE(%)", 0) or 0)
+                ash = float(row.get("Ash(%)", 0) or 0)
+                humidity = float(row.get("Humedad(%)", 0) or 0)
+                fc = float(row.get("FC(%)", 0) or 0)
+
+                # --- RECALCULAR ENERGÍA (ignorar valores del Excel) ---
+                food_data_temp = {
+                    "PB": pb,
+                    "EE": ee,
+                    "Ash": ash,
+                    "Humidity": humidity,
+                    "FC": fc,
+                }
+                energy_calcs = calculate_energy(food_data_temp)
+
+                ena = energy_calcs["ENA"]
+                ge = energy_calcs["GE"]
+                de = energy_calcs["DE"]
+                me = energy_calcs["ME"]
+                fc_ms = energy_calcs["FC_MS"]
+                de_pct = energy_calcs["DE_pct"]
+                ms = energy_calcs["MS"]
+
+                # --- LEER METADATA ---
+                id_alimento = str(row.get("ID", "")).strip()
+                marca = str(row.get("Marca", "")).strip()
+                especie = str(row.get("Especie", "")).strip()
+                etapa = str(row.get("Etapa_de_Vida", "")).strip()
+
+                precio_val = row.get("Precio_USD_kg")
+                precio = float(precio_val) if pd.notna(precio_val) else None
+
+                # Ingredientes: la columna puede llamarse con el texto largo o corto
+                ingredientes_raw = row.get(
+                    "Ingredientes (5 primeros de la lista)",
+                    row.get("Ingredientes", ""),
+                )
+                ingredientes = str(ingredientes_raw).strip() if pd.notna(ingredientes_raw) else ""
+
+                fuente_pb = str(row.get("Fuente_PB", "")).strip()
+                fuente_ee = str(row.get("Fuente_EE", "")).strip()
+                fuente_fc = str(row.get("Fuente_FC", "")).strip()
+                otros_raw = row.get("Otros", "")
+                otros = str(otros_raw).strip() if pd.notna(otros_raw) else ""
+
+                # --- EMOJI POR ESPECIE ---
+                especie_lower = especie.lower()
+                if "perro" in especie_lower:
+                    emoji = "🐶"
+                elif "gato" in especie_lower:
+                    emoji = "🐱"
+                else:
+                    emoji = "🍖"
+
+                # --- DESCRIPCIÓN ---
+                descripcion = f"{marca} - {etapa}"
+                if ingredientes:
+                    descripcion += f" | Ingredientes: {ingredientes}"
+
+                # --- CONSTRUIR ENTRADA FOODS ---
+                entry: dict = {
+                    # Valores base (as-fed) — originales del Excel
+                    "PB": round(pb, 2),
+                    "EE": round(ee, 2),
+                    "Ash": round(ash, 2),
+                    "Humidity": round(humidity, 2),
+                    "FC": round(fc, 2),
+                    # Valores RECALCULADOS (NO del Excel)
+                    "ENA": round(ena, 2),
+                    "GE": round(ge, 2),
+                    "DE": round(de, 2),
+                    "ME": round(me, 2),
+                    "FC_MS": round(fc_ms, 2),
+                    "DE_pct": round(de_pct, 2),
+                    "MS": round(ms, 2),
+                    # Metadata comercial
+                    "id": id_alimento,
+                    "brand": marca,
+                    "species": especie,
+                    "life_stage": etapa,
+                    "price_usd_kg": precio,
+                    # Info nutricional detallada
+                    "ingredients": ingredientes,
+                    "source_pb": fuente_pb,
+                    "source_ee": fuente_ee,
+                    "source_fc": fuente_fc,
+                    "other_info": otros,
+                    # Campos de compatibilidad con el resto del app
+                    "description": descripcion,
+                    "category": etapa,
+                    "emoji": emoji,
+                }
+
+                foods[nombre] = entry
+
+            except (ValueError, KeyError, TypeError) as exc:
+                logging.warning(
+                    "XLSX v2 row %d (%s): error parsing — %s", row_num, nombre, exc
+                )
+                continue
+
+    except Exception as exc:
+        logging.error("Error cargando XLSX v2: %s", exc)
+        return {}
+
+    return foods
+
+
 def food_data_is_precalculated(food_data: dict) -> bool:
     """
     Verifica si los datos de energía de un alimento provienen del CSV v2
@@ -438,15 +664,6 @@ _FOODS_FALLBACK = {
         "emoji": "👴",
     },
 }
-
-# ---------------------------------------------------------------------------
-# Inicialización: intentar cargar desde CSV v2 (21 columnas); si falla intentar
-# CSV v1 (10 columnas) y, en último recurso, usar el diccionario de respaldo.
-# ---------------------------------------------------------------------------
-_foods_cache = load_diets_from_csv_v2(_DEFAULT_CSV_PATH)
-if not _foods_cache:
-    _foods_cache = load_diets_from_csv(_DEFAULT_CSV_PATH)
-FOODS: dict = _foods_cache if _foods_cache else _FOODS_FALLBACK
 
 
 def calculate_ena(food_data):
@@ -565,6 +782,26 @@ def calculate_energy_breakdown(food_data):
         "DE": energy["DE"],
         "ME": ME,
     }
+
+
+# ---------------------------------------------------------------------------
+# Inicialización: intentar cargar desde XLSX v2 (21 columnas, recalcula energía);
+# si falla intentar CSV v2, luego CSV v1, y en último recurso usar fallback.
+# ---------------------------------------------------------------------------
+
+# Paso 1: Intentar cargar XLSX v2
+_foods_cache = load_diets_from_xlsx_v2(_DEFAULT_XLSX_PATH)
+
+# Paso 2: Si falla, intentar CSV v2
+if not _foods_cache:
+    _foods_cache = load_diets_from_csv_v2(_DEFAULT_CSV_PATH)
+
+# Paso 3: Si falla, intentar CSV v1 (legacy)
+if not _foods_cache:
+    _foods_cache = load_diets_from_csv(_DEFAULT_CSV_PATH)
+
+# Paso 4: Si todo falla, usar diccionario de respaldo
+FOODS: dict = _foods_cache if _foods_cache else _FOODS_FALLBACK
 
 
 def get_food_names():
