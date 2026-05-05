@@ -51,6 +51,17 @@ from export_tools import (
     generar_id_visita,
     generar_uuid_paciente,
 )
+from tracking_tools import (
+    leer_ficha_maestra,
+    calcular_deltas,
+    render_resumen_rapido,
+    crear_graficos_seguimiento,
+    generar_interpretacion_evolucion,
+    generar_decision_clinica,
+    render_tabla_historica,
+    agregar_visita_a_historico,
+    exportar_ficha_actualizada,
+)
 
 # Umbral de cobertura energética para alertas visuales (%)
 ENERGY_COVERAGE_THRESHOLD = 110
@@ -377,7 +388,8 @@ st.title("Gestión y Análisis de Dietas")
 tabs = st.tabs([
     "Perfil de Mascota",
     "Análisis",
-    "Resumen y Exportar"
+    "Resumen y Exportar",
+    "📈 Seguimiento del Paciente"
 ])
 
 from nutrient_tools import transformar_referencia_a_porcentaje
@@ -1504,4 +1516,171 @@ with tabs[2]:
             )
         except Exception as _e:
             st.error(f"Error al generar informe HTML: {_e}")
+
+
+# ======================== BLOQUE 10: SEGUIMIENTO DEL PACIENTE (TAB 4) ========================
+with tabs[3]:
+    st.header("📈 Seguimiento del Paciente")
+
+    # ── [1] UPLOADER ────────────────────────────────────────────────────────────
+    st.subheader("📂 Cargar Ficha Maestra")
+    _archivo_seguimiento = st.file_uploader(
+        "Selecciona la ficha maestra Excel (.xlsx) de la visita anterior",
+        type=["xlsx"],
+        key="uploader_seguimiento",
+    )
+
+    if _archivo_seguimiento is not None:
+        # ── [2] VALIDACIÓN ───────────────────────────────────────────────────────
+        _df_visitas4, _metadatos4, _valido4, _msg4 = leer_ficha_maestra(_archivo_seguimiento)
+
+        if not _valido4:
+            st.error(f"❌ {_msg4}")
+        else:
+            st.success(f"✅ Archivo cargado correctamente")
+
+            # Guardar en session_state para uso persistente
+            st.session_state["seguimiento_df_visitas"] = _df_visitas4
+            st.session_state["seguimiento_metadatos"] = _metadatos4
+
+            # Calcular deltas
+            _deltas4 = calcular_deltas(_df_visitas4)
+
+            # ── [3] RESUMEN RÁPIDO ─────────────────────────────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("📊 Resumen de Cambios")
+            render_resumen_rapido(_deltas4)
+
+            # ── [4] INTERPRETACIÓN ────────────────────────────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("💡 Interpretación")
+            _interpretacion4 = generar_interpretacion_evolucion(_df_visitas4, _deltas4)
+            st.markdown(
+                f"<div style='background:#f0f8ff;border-left:4px solid #52B788;"
+                f"padding:14px 18px;border-radius:6px;font-size:0.97rem;'>"
+                f"{_interpretacion4}</div>",
+                unsafe_allow_html=True,
+            )
+
+            # ── [5] 4 GRÁFICOS PLOTLY ──────────────────────────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("📈 Evolución Histórica")
+            try:
+                _fig_peso4, _fig_bcs4, _fig_energia4, _fig_cobertura4 = crear_graficos_seguimiento(_df_visitas4)
+                _gcol1, _gcol2 = st.columns(2)
+                with _gcol1:
+                    st.plotly_chart(_fig_peso4, use_container_width=True)
+                    st.plotly_chart(_fig_energia4, use_container_width=True)
+                with _gcol2:
+                    st.plotly_chart(_fig_bcs4, use_container_width=True)
+                    st.plotly_chart(_fig_cobertura4, use_container_width=True)
+            except Exception as _e4:
+                st.error(f"Error al generar gráficos: {_e4}")
+
+            # ── [6] TABLA HISTÓRICA ────────────────────────────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("📋 Histórico Completo")
+            render_tabla_historica(_df_visitas4)
+
+            # ── [7] DECISIÓN CLÍNICA ───────────────────────────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("🎯 Decisión Clínica")
+            _decision4, _justificacion4 = generar_decision_clinica(_df_visitas4, _deltas4)
+            st.markdown(
+                f"<div style='background:#eaf4ea;border:2px solid #52B788;"
+                f"border-radius:10px;padding:18px 22px;'>"
+                f"<h3 style='margin:0 0 8px 0;color:#2176FF;'>{_decision4}</h3>"
+                f"<p style='margin:0;font-size:0.97rem;color:#333;'>{_justificacion4}</p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # ── [8] BOTÓN AGREGAR VISITA ──────────────────────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("➕ Agregar Nueva Visita")
+            st.info(
+                "Para registrar la visita actual en el histórico, complete el "
+                "Perfil de Mascota (Pestaña 1) y el Análisis (Pestaña 2), luego "
+                "descargue la ficha maestra actualizada desde Pestaña 3 y cárguela aquí."
+            )
+            if st.button("✅ Agregar visita actual al histórico", key="btn_agregar_visita4"):
+                _visita_actual4 = st.session_state.get("ultima_visita_dict", None)
+                if _visita_actual4 is None:
+                    # Construir desde session_state si no fue guardada en pestaña 3
+                    try:
+                        _nueva_visita4 = crear_visita_dict(
+                            mascota={
+                                "nombre": st.session_state.get("nombre_mascota", ""),
+                                "especie": st.session_state.get("especie_mascota", "perro"),
+                                "edad": safe_float(st.session_state.get("edad_mascota", 1.0)),
+                                "peso": safe_float(st.session_state.get("peso_mascota", 12.0)),
+                                "bcs": int(safe_float(st.session_state.get("bcs_mascota", 5))),
+                                "etapa": st.session_state.get("etapa_mascota", "adulto"),
+                                "condicion": st.session_state.get("condicion_mascota", ""),
+                            },
+                            datos_energeticos={
+                                "rer": st.session_state.get("rer_actual", 0.0),
+                                "mer_base": st.session_state.get("mer_base_actual", 0.0),
+                                "mer_final": st.session_state.get("energia_actual", 0.0),
+                                "factor_fisiologico": st.session_state.get("factor_fisiologico_actual", 1.0),
+                                "senior_applied": st.session_state.get("senior_aplicado_actual", False),
+                                "estado_corporal": st.session_state.get("estado_corporal_tab1", ""),
+                                "riesgo_nutricional": st.session_state.get("riesgo_nutricional_tab1", ""),
+                                "prioridad_nutricional": st.session_state.get("prioridad_nutricional_tab1", ""),
+                            },
+                            datos_alimento={},
+                            mer_final=st.session_state.get("energia_actual", 0.0) or 0.0,
+                        )
+                        _exito4, _resultado4 = agregar_visita_a_historico(_df_visitas4, _nueva_visita4)
+                        if _exito4:
+                            st.session_state["seguimiento_df_visitas"] = _resultado4
+                            st.success("✅ Visita agregada al histórico.")
+                            st.rerun()
+                        else:
+                            st.warning(f"⚠️ {_resultado4}")
+                    except Exception as _ev:
+                        st.error(f"Error al agregar visita: {_ev}")
+                else:
+                    _exito4, _resultado4 = agregar_visita_a_historico(_df_visitas4, _visita_actual4)
+                    if _exito4:
+                        st.session_state["seguimiento_df_visitas"] = _resultado4
+                        st.success("✅ Visita agregada al histórico.")
+                        st.rerun()
+                    else:
+                        st.warning(f"⚠️ {_resultado4}")
+
+            # ── [9] BOTÓN EXPORTAR ────────────────────────────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("📥 Exportar Ficha Actualizada")
+            try:
+                _df_visitas_actual4 = st.session_state.get("seguimiento_df_visitas", _df_visitas4)
+                _xlsx_actualizado4 = exportar_ficha_actualizada(
+                    df_visitas=_df_visitas_actual4,
+                    df_analisis=pd.DataFrame(),
+                    df_requisitos=pd.DataFrame(),
+                    metadatos=_metadatos4,
+                )
+                _nombre_pac4 = (
+                    str(_df_visitas_actual4.iloc[0]["nombre_paciente"]).replace(" ", "_")
+                    if len(_df_visitas_actual4) > 0 and "nombre_paciente" in _df_visitas_actual4.columns
+                    else "Paciente"
+                )
+                st.download_button(
+                    label="📥 Descargar Ficha Actualizada (.xlsx)",
+                    data=_xlsx_actualizado4,
+                    file_name=f"UYWA_Ficha_Actualizada_{_nombre_pac4}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="download_ficha_actualizada4",
+                )
+            except Exception as _ee4:
+                st.error(f"Error al exportar ficha actualizada: {_ee4}")
+
+    else:
+        st.info(
+            "📂 **Carga la ficha maestra Excel** de una visita anterior para visualizar "
+            "el seguimiento histórico del paciente.\n\n"
+            "Puedes obtener esta ficha desde la **Pestaña 3 → Resumen y Exportar** "
+            "después de completar el perfil y el análisis de alimento."
+        )
 
