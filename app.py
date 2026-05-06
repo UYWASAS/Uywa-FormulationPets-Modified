@@ -1514,4 +1514,4 @@ with tabs[2]:
             )
         except Exception as _e:
             st.error(f"Error al generar informe HTML: {_e}")
-            ~
+    
