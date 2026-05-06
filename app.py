@@ -147,7 +147,7 @@ with tabs[0]:
         actividad = st.selectbox(
             "Nivel de actividad",
             ["Sedentario", "Moderado", "Activo", "Muy activo"],
-            key="actividad_input""
+            key="actividad_input"
         )
         estado_reproductivo = st.selectbox(
             "Estado reproductivo",
