@@ -6,6 +6,9 @@ _DEFAULT_USERS = {
     "admin": {"name": "Admin", "password": "adminpass", "premium": True},
 }
 
+# Alias público para que otros módulos puedan importar USERS_DB
+USERS_DB = _DEFAULT_USERS
+
 
 def _get_secrets_credentials():
     """
@@ -20,8 +23,9 @@ def _get_secrets_credentials():
 
 def login():
     """
-    Muestra campos de login en el sidebar y valida contra st.secrets o _DEFAULT_USERS.
-    Retorna el usuario autenticado o None.
+    Muestra campos de login en el sidebar y valida contra st.secrets o USERS_DB.
+    Tras autenticación exitosa establece st.session_state["logged_in"] y
+    st.session_state["user"] y llama a st.rerun() para rerenderizar el sidebar.
     """
     st.sidebar.header("Iniciar sesión")
     username = st.sidebar.text_input("Usuario")
@@ -32,18 +36,19 @@ def login():
             valid_user, valid_pass = secrets_creds
             if username == valid_user and password == valid_pass:
                 user = {"name": username, "premium": True}
-                st.session_state.user = user
-                return user
+                st.session_state["logged_in"] = True
+                st.session_state["user"] = user
+                st.rerun()
             else:
                 st.sidebar.error("Credenciales inválidas")
         else:
-            user = _DEFAULT_USERS.get(username)
+            user = USERS_DB.get(username)
             if user and user["password"] == password:
-                st.session_state.user = user
-                return user
+                st.session_state["logged_in"] = True
+                st.session_state["user"] = user
+                st.rerun()
             else:
                 st.sidebar.error("Credenciales inválidas")
-    return st.session_state.get("user", None)
 
 
 def is_premium_user(user):
