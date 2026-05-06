@@ -16,17 +16,6 @@ from pet_profile_tools import (
 from food_database import get_food_names, get_food_data
 from food_analysis import show_food_analysis
 from export_tools import exportar_ficha_maestra, generar_informe_html
-from tracking_tools import (
-    leer_ficha_maestra,
-    calcular_deltas,
-    render_resumen_rapido,
-    crear_graficos_seguimiento,
-    generar_interpretacion_evolucion,
-    generar_decision_clinica,
-    render_tabla_historica,
-    agregar_visita_a_historico,
-    exportar_ficha_actualizada,
-)
 
 # ======================== CONFIGURACIÓN DE STREAMLIT ========================
 
@@ -44,25 +33,30 @@ st.set_page_config(
 #   password = "tu_contraseña"
 
 def _get_credentials():
-    """Lee credenciales desde st.secrets. Lanza un error claro si no están configuradas."""
+    """
+    Lee credenciales desde st.secrets.
+    Si no están configuradas, usa credenciales por defecto para desarrollo local/demo
+    y muestra una advertencia en el sidebar.
+    En producción (Streamlit Cloud), configura [auth] username/password en Settings → Secrets.
+    """
     try:
         return (
             st.secrets["auth"]["username"],
             st.secrets["auth"]["password"],
         )
     except (KeyError, AttributeError):
-        st.error(
-            "⚠️ Credenciales no configuradas. "
-            "En Streamlit Cloud, ve a Settings → Secrets y añade:\n\n"
-            "```toml\n[auth]\nusername = \"tu_usuario\"\npassword = \"tu_contraseña\"\n```"
+        # Credenciales por defecto para desarrollo local / demo
+        st.sidebar.warning(
+            "⚠️ Usando credenciales demo. "
+            "Para producción, configura `[auth]` en Streamlit Cloud → Settings → Secrets."
         )
-        st.stop()
+        return ("admin", "adminpass")
 
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
 if not st.session_state["authenticated"]:
-    st.sidebar.image("asstes/logo.png", use_container_width=True)
+    st.sidebar.image("assets/logo.png", use_container_width=True)
     st.sidebar.title("🔐 Iniciar sesión")
     _user_input = st.sidebar.text_input("Usuario", key="_login_user")
     _pass_input = st.sidebar.text_input("Contraseña", type="password", key="_login_pass")
@@ -79,7 +73,7 @@ if not st.session_state["authenticated"]:
 
 # Botón de cierre de sesión (visible solo cuando está autenticado)
 with st.sidebar:
-    st.image("asstes/logo.png", use_container_width=True)
+    st.image("assets/logo.png", use_container_width=True)
     st.markdown("---")
     if st.button("🚪 Cerrar sesión", key="_logout_btn"):
         st.session_state["authenticated"] = False
@@ -97,10 +91,6 @@ if "req_ee_g" not in st.session_state:
     st.session_state["req_ee_g"] = None
 if "alimento_seleccionado" not in st.session_state:
     st.session_state["alimento_seleccionado"] = None
-if "df_tracking" not in st.session_state:
-    st.session_state["df_tracking"] = None
-if "metadatos_tracking" not in st.session_state:
-    st.session_state["metadatos_tracking"] = {}
 
 # ======================== ESTILOS GLOBALES ========================
 
@@ -149,7 +139,7 @@ st.markdown("""
 
 _col_logo, _col_title = st.columns([1, 5])
 with _col_logo:
-    st.image("asstes/logo.png", width=110)
+    st.image("assets/logo.png", width=110)
 with _col_title:
     st.markdown(
         """
@@ -167,7 +157,6 @@ tabs = st.tabs([
     "🐾 Perfil de Mascota",
     "📊 Análisis de Alimentos",
     "📤 Resumen y Exportar",
-    "📈 Seguimiento del Paciente"
 ])
 
 # ======================== TAB 1: PERFIL DE MASCOTA ========================
@@ -329,139 +318,6 @@ with tabs[2]:
                     st.error(f"Error al generar informe: {str(e)}")
     else:
         st.warning("⚠️ Completa el perfil de mascota y selecciona un alimento en las pestañas anteriores.")
-
-# ======================== TAB 4: SEGUIMIENTO DEL PACIENTE ========================
-
-with tabs[3]:
-    st.header("📈 Seguimiento del Paciente")
-    st.markdown(
-        "Carga la **ficha maestra Excel** de un paciente anterior para analizar su evolución nutricional."
-    )
-    
-    # ─── UPLOADER ───
-    st.subheader("📁 Cargar Ficha Maestra de Seguimiento")
-    archivo_excel = st.file_uploader(
-        "Selecciona archivo Excel (.xlsx) con histórico de visitas",
-        type=["xlsx"],
-        key="tracking_file_upload"
-    )
-    
-    if archivo_excel is not None:
-        # Leer y validar
-        try:
-            df_visitas, metadatos, es_valido, msg_validacion = leer_ficha_maestra(archivo_excel)
-            
-            if es_valido:
-                st.success(f"✅ {msg_validacion}")
-                st.session_state["df_tracking"] = df_visitas
-                st.session_state["metadatos_tracking"] = metadatos
-            else:
-                st.error(f"❌ {msg_validacion}")
-                st.stop()
-        except Exception as e:
-            st.error(f"❌ Error al leer archivo: {str(e)}")
-            st.stop()
-    
-    # ─── CONTENIDO PRINCIPAL ───
-    if st.session_state.get("df_tracking") is not None:
-        df_visitas = st.session_state["df_tracking"]
-        metadatos = st.session_state.get("metadatos_tracking", {})
-        
-        # Calcular deltas
-        deltas = calcular_deltas(df_visitas)
-        
-        # ─── SECCIÓN 1: RESUMEN RÁPIDO ───
-        st.markdown("### 📊 Resumen de Cambios (Última vs Penúltima Visita)")
-        render_resumen_rapido(deltas)
-        
-        st.markdown("---")
-        
-        # ─── SECCIÓN 2: INTERPRETACIÓN NARRATIVA ───
-        st.markdown("### 📝 Análisis de Evolución")
-        interpretacion = generar_interpretacion_evolucion(df_visitas, deltas)
-        st.markdown(
-            f"<div style='background:#f0f8ff;border-left:4px solid #2176ff;padding:14px 18px;border-radius:6px;'>{interpretacion}</div>",
-            unsafe_allow_html=True
-        )
-        
-        st.markdown("---")
-        
-        # ─── SECCIÓN 3: 4 GRÁFICOS PLOTLY (2x2 GRID) ───
-        st.markdown("### 📈 Gráficos de Evolución")
-        try:
-            fig_peso, fig_bcs, fig_energia, fig_cobertura = crear_graficos_seguimiento(df_visitas)
-            
-            g1, g2 = st.columns(2)
-            with g1:
-                st.plotly_chart(fig_peso, use_container_width=True)
-            with g2:
-                st.plotly_chart(fig_bcs, use_container_width=True)
-            
-            g3, g4 = st.columns(2)
-            with g3:
-                st.plotly_chart(fig_energia, use_container_width=True)
-            with g4:
-                st.plotly_chart(fig_cobertura, use_container_width=True)
-        except Exception as e:
-            st.error(f"Error al crear gráficos: {str(e)}")
-        
-        st.markdown("---")
-        
-        # ─── SECCIÓN 4: TABLA HISTÓRICA ───
-        st.markdown("### 📋 Tabla de Seguimiento Histórico")
-        render_tabla_historica(df_visitas)
-        
-        st.markdown("---")
-        
-        # ─── SECCIÓN 5: DECISIÓN CLÍNICA ───
-        st.markdown("### 🎯 Recomendación Clínica")
-        decision, justificacion = generar_decision_clinica(df_visitas, deltas)
-        
-        # Determinar color según decision
-        color_mapa = {
-            "MANTENER": "#52B788",
-            "AUMENTAR": "#FFB703",
-            "REDUCIR": "#F4845F",
-        }
-        
-        color_decision = "#2176FF"
-        for palabra, color in color_mapa.items():
-            if palabra in decision:
-                color_decision = color
-                break
-        
-        st.markdown(
-            f"<div style='background:rgba(255,255,255,1);border-left:5px solid {color_decision};padding:16px 20px;border-radius:8px;margin:12px 0;'>"
-            f"<div style='font-size:1.2rem;font-weight:700;color:{color_decision};margin-bottom:8px;'>{decision}</div>"
-            f"<div style='font-size:0.95rem;color:#333;'>{justificacion}</div>"
-            f"</div>",
-            unsafe_allow_html=True
-        )
-        
-        st.markdown("---")
-        
-        # ─── SECCIÓN 6: BOTONES DE ACCIÓN ───
-        col_btn1, col_btn2 = st.columns(2)
-        
-        with col_btn1:
-            if st.button("➕ Agregar Nueva Visita", key="add_visit_btn"):
-                st.info("📝 Funcionalidad de agregar visita disponible en próximas versiones.")
-        
-        with col_btn2:
-            if st.button("💾 Descargar Ficha Actualizada", key="download_updated_btn"):
-                try:
-                    excel_bytes = exportar_ficha_actualizada(df_visitas, metadatos)
-                    st.download_button(
-                        label="⬇️ Descargar Excel",
-                        data=excel_bytes,
-                        file_name=f"seguimiento_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    )
-                    st.success("✅ Archivo descargado correctamente")
-                except Exception as e:
-                    st.error(f"Error al descargar: {str(e)}")
-    else:
-        st.info("👆 Carga un archivo Excel para comenzar el seguimiento del paciente.")
 
 # ======================== PIE DE PÁGINA ========================
 

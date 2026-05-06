@@ -1,13 +1,2 @@
-def fmt2(x):
-    try:
-        return f"{float(x):.2f}"
-    except Exception:
-        return x
-
-def fmt2_df(df):
-    import pandas as pd
-    import numpy as np
-    df_fmt = df.copy()
-    for col in df_fmt.select_dtypes(include=[np.number]).columns:
-        df_fmt[col] = df_fmt[col].apply(fmt2)
-    return df_fmt
+# This module is superseded by the utils/ package.
+# fmt2 and fmt2_df are defined in utils/fmt_tools.py and re-exported from utils/__init__.py.

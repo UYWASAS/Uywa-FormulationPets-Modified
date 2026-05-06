@@ -1286,7 +1286,6 @@ def show_food_analysis():
     selected_for_comparison = st.multiselect(
         "Selecciona alimentos para comparar (hasta 6)",
         food_names,
-        default=st.session_state[session_key_comparison],
         key=session_key_comparison,
         max_selections=6,
     )
