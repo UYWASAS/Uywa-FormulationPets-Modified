@@ -37,7 +37,56 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Inicializar session_state
+# ======================== AUTENTICACIÓN SIDEBAR ========================
+# Secrets en Streamlit Cloud: añade en Settings > Secrets:
+#   [auth]
+#   username = "tu_usuario"
+#   password = "tu_contraseña"
+
+def _get_credentials():
+    """Lee credenciales desde st.secrets. Lanza un error claro si no están configuradas."""
+    try:
+        return (
+            st.secrets["auth"]["username"],
+            st.secrets["auth"]["password"],
+        )
+    except (KeyError, AttributeError):
+        st.error(
+            "⚠️ Credenciales no configuradas. "
+            "En Streamlit Cloud, ve a Settings → Secrets y añade:\n\n"
+            "```toml\n[auth]\nusername = \"tu_usuario\"\npassword = \"tu_contraseña\"\n```"
+        )
+        st.stop()
+
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.sidebar.image("asstes/logo.png", use_container_width=True)
+    st.sidebar.title("🔐 Iniciar sesión")
+    _user_input = st.sidebar.text_input("Usuario", key="_login_user")
+    _pass_input = st.sidebar.text_input("Contraseña", type="password", key="_login_pass")
+    if st.sidebar.button("Entrar", key="_login_btn"):
+        _valid_user, _valid_pass = _get_credentials()
+        if _user_input == _valid_user and _pass_input == _valid_pass:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.sidebar.error("❌ Credenciales incorrectas")
+    st.sidebar.markdown("---")
+    st.sidebar.caption("Uywa · Pet Formulation Companion")
+    st.stop()
+
+# Botón de cierre de sesión (visible solo cuando está autenticado)
+with st.sidebar:
+    st.image("asstes/logo.png", use_container_width=True)
+    st.markdown("---")
+    if st.button("🚪 Cerrar sesión", key="_logout_btn"):
+        st.session_state["authenticated"] = False
+        st.rerun()
+
+# ======================== INICIALIZAR SESSION STATE ========================
+
 if "especie_mascota" not in st.session_state:
     st.session_state["especie_mascota"] = ""
 if "energia_actual" not in st.session_state:
@@ -98,13 +147,17 @@ st.markdown("""
 
 # ======================== ENCABEZADO PRINCIPAL ========================
 
-st.markdown(
-    """
-    <div class="main-title">🐾 Pet Formulation Companion</div>
-    <div class="subtitle">Análisis Nutricional Personalizado para Mascotas</div>
-    """,
-    unsafe_allow_html=True
-)
+_col_logo, _col_title = st.columns([1, 5])
+with _col_logo:
+    st.image("asstes/logo.png", width=110)
+with _col_title:
+    st.markdown(
+        """
+        <div class="main-title" style="text-align:left;">🐾 Pet Formulation Companion</div>
+        <div class="subtitle" style="text-align:left;">Análisis Nutricional Personalizado para Mascotas</div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 st.markdown("---")
 
