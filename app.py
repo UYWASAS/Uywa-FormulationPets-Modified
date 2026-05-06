@@ -15,7 +15,7 @@ from pet_profile_tools import (
 )
 from food_database import get_food_names, get_food_data
 from food_analysis import show_food_analysis
-from export_tools import exportar_ficha_maestra, generar_informe_pdf
+from export_tools import exportar_ficha_maestra, generar_informe_html
 from tracking_tools import (
     leer_ficha_maestra,
     calcular_deltas,
@@ -262,18 +262,18 @@ with tabs[2]:
                     st.error(f"Error al generar Excel: {str(e)}")
         
         with col2:
-            if st.button("📄 Generar PDF", key="export_pdf_btn"):
+            if st.button("📄 Generar Informe (HTML)", key="export_html_btn"):
                 try:
-                    pdf_bytes = generar_informe_pdf(perfil, alimento)
+                    html_bytes = generar_informe_html(perfil, alimento)
                     st.download_button(
-                        label="⬇️ Descargar PDF",
-                        data=pdf_bytes,
-                        file_name=f"informe_{perfil['nombre']}_{datetime.now().strftime('%Y%m%d')}.pdf",
-                        mime="application/pdf",
+                        label="⬇️ Descargar Informe (HTML)",
+                        data=html_bytes,
+                        file_name=f"informe_{perfil['nombre']}_{datetime.now().strftime('%Y%m%d')}.html",
+                        mime="text/html",
                     )
-                    st.success("✅ PDF generado correctamente")
+                    st.success("✅ Informe HTML generado correctamente")
                 except Exception as e:
-                    st.error(f"Error al generar PDF: {str(e)}")
+                    st.error(f"Error al generar informe: {str(e)}")
     else:
         st.warning("⚠️ Completa el perfil de mascota y selecciona un alimento en las pestañas anteriores.")
 
