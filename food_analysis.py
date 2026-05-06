@@ -1291,9 +1291,6 @@ def show_food_analysis():
         max_selections=6,
     )
 
-    # Guardar en session_state para sincronización
-    st.session_state[session_key_comparison] = selected_for_comparison
-
     if selected_for_comparison:
         # ═══ PREPARAR MAPA DE VALORES EDITADOS ═══
         edited_values_map = {}
