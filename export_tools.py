@@ -944,3 +944,191 @@ def exportar_a_html(mascota, datos_energeticos, datos_alimento,
 </body>
 </html>"""
     return html
+
+
+# ---------------------------------------------------------------------------
+# Helpers: build export data from simplified perfil + alimento name
+# ---------------------------------------------------------------------------
+
+def _build_export_context(perfil, alimento_nombre):
+    """
+    Construye los parámetros necesarios para las funciones de exportación a partir
+    del perfil de la mascota (dict de generar_perfil_mascota) y el nombre del alimento.
+
+    Retorna:
+        tuple: (mascota, datos_energeticos, datos_alimento, mer_final,
+                senior_applied, recomendaciones, nutrientes_ref, cob_pb, cob_ee)
+    """
+    from food_database import get_food_data
+    from utils import NUTRIENTES_REFERENCIA_PERRO, NUTRIENTES_REFERENCIA_GATO
+
+    nombre = perfil.get("nombre", "Mascota")
+    especie = perfil.get("especie", "perro").lower()
+    edad = _safe_float(perfil.get("edad_anos", 0.0))
+    peso = _safe_float(perfil.get("peso_kg", 0.0))
+    mer_final = _safe_float(perfil.get("mer_kcal", 0.0))
+    requerimientos = perfil.get("requerimientos", {})
+    condicion = perfil.get("estado_reproductivo", "Adulto")
+
+    # RER via NRC formula (kcal/day)
+    rer = round(70.0 * (peso ** 0.75), 1) if peso > 0 else 0.0
+    mer_base = mer_final  # no separate base stored in simplified perfil
+
+    # Senior flag
+    senior_applied = (especie == "perro" and edad >= 7) or (especie == "gato" and edad >= 10)
+
+    # Life stage
+    if especie == "perro":
+        etapa = "senior" if edad >= 7 else ("cachorro" if edad < 1 else "adulto")
+    else:
+        etapa = "senior" if edad >= 10 else ("cachorro" if edad < 1 else "adulto")
+
+    # BCS / body state defaults (not stored in simplified perfil)
+    bcs = 5
+    estado_corporal = "Ideal"
+    riesgo_nutricional = "Bajo"
+
+    # Food energy data
+    food_data = get_food_data(alimento_nombre) if alimento_nombre else None
+    me = _safe_float((food_data or {}).get("ME", 0.0))
+
+    recomendados = round(mer_final / me * 100.0, 1) if me > 0 else 0.0
+    gramos = recomendados
+    aporte = round(gramos * me / 100.0, 1)
+    cobertura = round(aporte / mer_final * 100.0, 1) if mer_final > 0 else 0.0
+    rango_min = round(recomendados * 0.9, 1)
+    rango_max = round(recomendados * 1.1, 1)
+
+    if cobertura >= 95:
+        decision = "Adecuado"
+        interpretacion = "La ración cubre los requerimientos energéticos del paciente."
+    elif cobertura >= 80:
+        decision = "Revisar"
+        interpretacion = "La ración cubre parcialmente los requerimientos. Considerar ajuste."
+    else:
+        decision = "Insuficiente"
+        interpretacion = "La ración no cubre los requerimientos energéticos. Se requiere ajuste."
+
+    # Protein / fat coverage
+    req_pb_g = _safe_float(requerimientos.get("pb_g"))
+    req_ee_g = _safe_float(requerimientos.get("ee_g"))
+    pb_food = _safe_float((food_data or {}).get("PB", 0.0))
+    ee_food = _safe_float((food_data or {}).get("EE", 0.0))
+
+    pb_aportado = gramos * pb_food / 100.0
+    ee_aportado = gramos * ee_food / 100.0
+
+    cob_pb = round(pb_aportado / req_pb_g * 100.0, 1) if req_pb_g > 0 else None
+    cob_ee = round(ee_aportado / req_ee_g * 100.0, 1) if req_ee_g > 0 else None
+
+    recomendaciones = generar_recomendaciones(
+        estado_corporal, bcs, edad, condicion, cobertura,
+        cob_pb=cob_pb, cob_ee=cob_ee,
+    )
+
+    nutrientes_ref = (
+        NUTRIENTES_REFERENCIA_PERRO if especie == "perro" else NUTRIENTES_REFERENCIA_GATO
+    )
+
+    mascota = {"nombre": nombre, "especie": especie}
+    datos_energeticos = {
+        "edad": edad,
+        "peso": peso,
+        "bcs": bcs,
+        "estado_corporal": estado_corporal,
+        "condicion": condicion,
+        "rer": rer,
+        "mer_base": mer_base,
+        "riesgo_nutricional": riesgo_nutricional,
+        "etapa": etapa,
+        "diagnostico": generar_diagnostico_resumen(
+            nombre, bcs, estado_corporal, mer_final,
+            prioridad="Mantenimiento",
+            condicion=condicion,
+            edad=edad,
+            aplicar_senior=senior_applied,
+        ),
+    }
+    datos_alimento = {
+        "alimento": alimento_nombre or "—",
+        "me": me,
+        "gramos": gramos,
+        "aporte": aporte,
+        "cobertura": cobertura,
+        "recomendados": recomendados,
+        "rango_min": rango_min,
+        "rango_max": rango_max,
+        "decision": decision,
+        "interpretacion": interpretacion,
+    }
+
+    return (
+        mascota, datos_energeticos, datos_alimento,
+        mer_final, senior_applied, recomendaciones,
+        nutrientes_ref, cob_pb, cob_ee,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Funciones de exportación simplificadas (perfil + nombre de alimento)
+# ---------------------------------------------------------------------------
+
+def exportar_ficha_maestra(perfil, alimento):
+    """
+    Genera la Ficha Maestra Excel a partir del perfil de la mascota y el nombre del alimento.
+
+    Parámetros:
+        perfil (dict) : Perfil generado por generar_perfil_mascota().
+        alimento (str): Nombre del alimento seleccionado.
+
+    Retorna:
+        bytes: Contenido del archivo Excel (.xlsx).
+    """
+    (mascota, datos_energeticos, datos_alimento,
+     mer_final, senior_applied, recomendaciones,
+     nutrientes_ref, cob_pb, cob_ee) = _build_export_context(perfil, alimento)
+
+    return exportar_ficha_maestra_excel(
+        mascota, datos_energeticos, datos_alimento,
+        mer_final, senior_applied, recomendaciones,
+        nutrientes_ref, cob_pb, cob_ee,
+    )
+
+
+def generar_informe_html(perfil, alimento):
+    """
+    Genera un informe nutricional en formato HTML descargable.
+
+    Parámetros:
+        perfil (dict) : Perfil generado por generar_perfil_mascota().
+        alimento (str): Nombre del alimento seleccionado.
+
+    Retorna:
+        bytes: Contenido HTML codificado en UTF-8.
+    """
+    (mascota, datos_energeticos, datos_alimento,
+     mer_final, _senior, recomendaciones,
+     _nutrientes_ref, _cob_pb, _cob_ee) = _build_export_context(perfil, alimento)
+
+    diagnostico = datos_energeticos.get("diagnostico", "")
+
+    html = exportar_a_html(
+        mascota, datos_energeticos, datos_alimento,
+        mer_final, diagnostico, recomendaciones,
+    )
+    return html.encode("utf-8")
+
+
+def generar_informe_pdf(perfil, alimento):
+    """
+    Alias de generar_informe_html — genera un informe HTML en lugar de PDF
+    para evitar dependencias de sistema no disponibles en Streamlit Cloud.
+
+    Parámetros:
+        perfil (dict) : Perfil generado por generar_perfil_mascota().
+        alimento (str): Nombre del alimento seleccionado.
+
+    Retorna:
+        bytes: Contenido HTML codificado en UTF-8.
+    """
+    return generar_informe_html(perfil, alimento)
