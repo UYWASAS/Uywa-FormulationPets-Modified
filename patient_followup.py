@@ -191,7 +191,7 @@ def _decision_clinica(df_plot):
         return "aumentar ración"
     if cobertura > 110 and (peso_delta > 0 or bcs_delta > 0):
         return "reducir ración"
-    if 90 <= cobertura <= 110 and abs(peso_delta) <= 0.2 and abs(bcs_delta) <= 0.1:
+    if 90 <= cobertura <= 110 and abs(peso_delta) <= 0.2 and bcs_delta == 0:
         return "mantener"
     return "reevaluar"
 
@@ -238,7 +238,9 @@ def _build_current_visit_from_session():
     especie = st.session_state.get("especie_mascota", mascota.get("especie", "perro"))
     edad = _safe_float(st.session_state.get("edad_mascota", mascota.get("edad", 0)))
     peso = _safe_float(st.session_state.get("peso_mascota", mascota.get("peso", 0)))
-    bcs = int(_safe_float(st.session_state.get("bcs_mascota", mascota.get("bcs", 5)), 5))
+    bcs_raw = st.session_state.get("bcs_mascota", mascota.get("bcs", 5))
+    bcs = int(round(_safe_float(bcs_raw, default=5)))
+    bcs = max(1, min(9, bcs))
 
     mer_final = _safe_float(st.session_state.get("energia_actual", 0))
     rer = _safe_float(st.session_state.get("rer_actual", 0))
@@ -294,7 +296,8 @@ def _build_current_visit_from_session():
 
 
 def _write_df_to_sheet(ws, df):
-    ws.delete_rows(1, ws.max_row if ws.max_row > 0 else 1)
+    if ws.max_row >= 1:
+        ws.delete_rows(1, ws.max_row)
     ws.append(list(df.columns))
     for _, row in df.iterrows():
         ws.append([row.get(col, "") for col in df.columns])
@@ -357,7 +360,7 @@ def show_patient_followup():
     )
 
     if not uploaded_file:
-        st.info("Sube la ficha maestra descargada desde la pestaña 3 para iniciar el seguimiento.")
+        st.info("Sube la ficha maestra descargada desde la pestaña Resumen y Exportar para iniciar el seguimiento.")
         return
 
     file_bytes = uploaded_file.getvalue()
