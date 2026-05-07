@@ -37,6 +37,7 @@ from auth import USERS_DB
 from food_analysis import show_food_analysis
 from food_database import FOODS, calculate_energy as calc_energy_food, calculate_ena as calc_ena_food, get_food_names as get_food_names_db
 from food_database import calculate_energy_breakdown
+from patient_followup import show_patient_followup
 from PIL import Image
 import io
 import datetime
@@ -377,7 +378,8 @@ st.title("Gestión y Análisis de Dietas")
 tabs = st.tabs([
     "Perfil de Mascota",
     "Análisis",
-    "Resumen y Exportar"
+    "Resumen y Exportar",
+    "Seguimiento del Paciente",
 ])
 
 from nutrient_tools import transformar_referencia_a_porcentaje
@@ -1514,4 +1516,7 @@ with tabs[2]:
             )
         except Exception as _e:
             st.error(f"Error al generar informe HTML: {_e}")
-    
+
+# ======================== BLOQUE 5.4: TAB SEGUIMIENTO DEL PACIENTE ========================
+with tabs[3]:
+    show_patient_followup()
